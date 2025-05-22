@@ -198,4 +198,3 @@ Licensed under the [MIT License](LICENSE).
 
 ---
 
-Would you like this version in markdown format to drop directly into your `README.md`?
