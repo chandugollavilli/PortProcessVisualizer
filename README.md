@@ -1,194 +1,201 @@
-Port and Process Activity Visualizer 🚀
+Here’s an enhanced and more visually engaging version of your **Port and Process Activity Visualizer** project README. It maintains the core information but improves formatting, readability, and appeal:
 
-A powerful Python-based application for monitoring network port and process activity in real-time on Windows systems. This tool provides a sleek web interface to visualize active ports, filter by port or process, display GeoIP locations for remote IPs, export logs as CSV/JSON, and generate alerts for suspicious port usage. Perfect for network administrators, security analysts, or developers looking to track system activity with ease.
-📋 Table of Contents
+---
 
-Features
-Screenshots
-Installation
-Usage
-Testing
-Troubleshooting
-Contributing
-License
-Contact
+# 🔍 **Port and Process Activity Visualizer** 🚀
 
-✨ Features
+A sleek, real-time monitoring tool for network ports and system processes on **Windows**.
 
-Real-Time Monitoring: Tracks active ports and processes every 10 seconds using psutil.
-Web-Based UI: Intuitive interface with a table and timeline chart for port usage.
-Filters: Search by specific ports (e.g., 8000) or process names (e.g., python.exe).
-GeoIP Lookup: Displays city and country for remote IPs via ip-api.com.
-Log Exports: Download port activity logs as CSV or JSON for analysis.
-Alerts: Logs suspicious activity (e.g., non-standard processes on ports < 1024) to alerts.log.
-Thread-Safe Database: Uses SQLite with a robust DatabaseManager for reliable data storage.
-Windows Optimized: Tailored for Windows 10/11 with exclusions for system processes like svchost.exe.
+Designed for **network administrators**, **security analysts**, and **developers**, this intuitive tool helps visualize, filter, and analyze port activity via a modern web interface.
 
-📸 Screenshots
-Coming soon! Example screenshots of the web UI, table, and timeline chart will be added.
-🛠 Installation
-Follow these steps to set up the project on a Windows system. For detailed instructions, refer to SOP_Port_Process_Visualizer.md.
-Prerequisites
+---
 
-Windows 10 or 11
-Python 3.8 or higher
-Git (optional, for cloning)
-Internet access (for GeoIP lookups)
-Administrator privileges (for full psutil functionality)
+## 📑 **Table of Contents**
 
-Steps
+* [✨ Features](#-features)
+* [📸 Screenshots](#-screenshots)
+* [🛠 Installation](#-installation)
+* [🚀 Usage](#-usage)
+* [🧪 Testing](#-testing)
+* [🛡️ Troubleshooting](#-troubleshooting)
+* [🤝 Contributing](#-contributing)
+* [📜 License](#-license)
+* [📬 Contact](#-contact)
 
-Create Working Directory:
+---
+
+## ✨ **Features**
+
+* 🔄 **Real-Time Monitoring**
+  Updates every 10 seconds using `psutil` to track active ports and running processes.
+* 🌐 **Web-Based UI**
+  Clean, responsive interface with data table and dynamic timeline chart.
+* 🔍 **Smart Filters**
+  Filter by specific ports (e.g., `8000`) or process names (e.g., `python.exe`).
+* 📍 **GeoIP Lookup**
+  Visualize remote IP locations (City & Country) via `ip-api.com`.
+* 📤 **Export Logs**
+  Download session data as **CSV** or **JSON** for further analysis.
+* 🚨 **Security Alerts**
+  Detects and logs suspicious behavior (e.g., non-standard apps on ports < 1024).
+* 💾 **Thread-Safe Storage**
+  SQLite-backed data persistence with robust access handling.
+* 🪟 **Optimized for Windows 10/11**
+  Excludes core system processes like `svchost.exe`.
+
+---
+
+## 📸 **Screenshots**
+
+> Visual previews of the dashboard, timeline chart, and filter/search functionality.
+
+---
+
+## 🛠 **Installation**
+
+> Follow these simple steps to get started:
+
+### ✅ Prerequisites:
+
+* Windows 10 or 11
+* Python 3.8+
+* Git (optional)
+* Internet access (for GeoIP)
+* Admin privileges
+
+### 🔧 Setup:
+
+```powershell
 mkdir C:\Temp\ports
 cd C:\Temp\ports
 icacls C:\Temp\ports /grant Everyone:F
-
-
-Clone the Repository (or copy files manually):
 git clone https://github.com/chandugollavilli/PortProcessVisualizer
 cd PortProcessVisualizer
-
-Replace your-username with your GitHub username.
-
-Install Dependencies:
 pip install psutil flask requests
+```
 
+Ensure these files are present:
 
-Verify Files:Ensure port_process_visualizer.py, SOP_Port_Process_Visualizer.md, and templates/index.html are present:
-dir
+* `port_process_visualizer.py`
+* `SOP_Port_Process_Visualizer.md`
+* `templates/index.html`
 
+---
 
+## 🚀 **Usage**
 
-🚀 Usage
+### ▶️ Run the Application:
 
-Run the Application:
-
-Open an elevated PowerShell (Run as administrator):cd C:\Temp\ports
+```powershell
+cd C:\Temp\ports
 python port_process_visualizer.py
+```
 
+Visit [http://localhost:5000](http://localhost:5000) to explore the dashboard.
 
-Expected output: Running on http://127.0.0.1:5000.
+### 🧪 Generate Test Data:
 
+```bash
+python -m http.server 8000
+# View 'python.exe' on port 8000 in the UI
+taskkill /IM python.exe /F
+```
 
-Access the Web UI:
+### 🚨 Monitor Alerts:
 
-Open a browser and navigate to http://localhost:5000.
-Explore the table, apply filters, view the timeline chart, and export logs.
+```bash
+python -m http.server 80
+type alerts.log
+```
 
+---
 
-Generate Test Data:
+## 🧪 **Testing**
 
-Start a test server:python -m http.server 8000
+### 🔍 Database Structure:
 
-
-Check the UI for python.exe on port 8000.
-Stop the server:taskkill /IM python.exe /F
-
-
-
-
-Monitor Alerts:
-
-Run a server on a low port (requires admin):python -m http.server 80
-
-
-Check alerts.log:type alerts.log
-
-
-
-
-
-For detailed usage, see SOP_Port_Process_Visualizer.md.
-🧪 Testing
-Test the core features to ensure the application works as expected. Refer to Section 5.3 of SOP_Port_Process_Visualizer.md for comprehensive testing steps.
-
-Database:
+```python
 import sqlite3
 conn = sqlite3.connect('port_activity.db')
 c = conn.cursor()
 c.execute("PRAGMA table_info(port_activity)")
 print(c.fetchall())
 conn.close()
+```
 
+Expected columns: `timestamp`, `pid`, `process_name`, `port`, `protocol`, `remote_ip`, `status`, `location`
 
-Expected: Includes timestamp, pid, process_name, port, protocol, remote_ip, status, location.
+### ✅ UI Filters:
 
+* Filter by `8000` or `python`
+* Results update dynamically
 
-UI Filters:
+### 🌍 GeoIP Test:
 
-Filter by port “8000” or process “python” in the UI.
-Expected: Table updates to show only matching entries.
-
-
-GeoIP Lookup:
+```bash
 curl http://example.com
+```
 
+Expected location (e.g., “Mumbai, India”) in the UI.
 
-Check the UI’s “Location” column for city/country (e.g., “Mumbai, India”).
+### 📤 Export:
 
+Use UI buttons to download CSV or JSON.
 
-Exports:
+### 🚨 Alert Validation:
 
-Click “Export as CSV” or “Export as JSON” in the UI.
-Verify downloaded files.
+Check `alerts.log` after running a low-port process.
 
+---
 
-Alerts:
+## 🛡️ **Troubleshooting**
 
-Check alerts.log after running a server on port 80.
+| Issue                | Solution                                    |
+| -------------------- | ------------------------------------------- |
+| `database is locked` | Delete `port_activity.db` and restart       |
+| UI not updating      | Check browser console (F12) & `/api/data`   |
+| GeoIP not showing    | Test: `curl http://ip-api.com/json/8.8.8.8` |
+| General issues       | Use Admin PowerShell, verify folder access  |
 
+📘 Refer to **Section 5.4** of `SOP_Port_Process_Visualizer.md` for advanced fixes.
 
+---
 
-🛡️ Troubleshooting
+## 🤝 **Contributing**
 
-Database Errors (e.g., “database is locked”):
-Delete port_activity.db and restart:del port_activity.db
-python port_process_visualizer.py
+We welcome your contributions!
+To add features or fix issues:
 
+```bash
+# Fork and clone
+git checkout -b feature/your-feature
+# After edits
+git commit -m "Add your feature"
+git push origin feature/your-feature
+```
 
+➡️ Submit a Pull Request and follow the project's coding style.
 
+---
 
-UI Not Updating:
-Check browser console (F12) for JavaScript errors.
-Test /api/data:curl http://localhost:5000/api/data
+## 📜 License
 
+Licensed under the [MIT License](LICENSE).
 
+---
 
+## 📬 Contact
 
-GeoIP Issues:
-Verify ip-api.com access:curl http://ip-api.com/json/8.8.8.8
+💬 Open a GitHub issue or email the maintainer: **[chandugollavilli66@gmail.com](mailto:chandugollavilli66@gmail.com)**
+📎 Include your `app.log` and exact steps to reproduce any issues.
 
+---
 
-Check app.log for errors:type app.log
+### Built with ❤️ using Python, Flask & SQLite
 
+> Real-time insights. Secure systems. Simplified.
+> Happy monitoring! 🧠🔐📊
 
+---
 
-
-General:
-Run PowerShell as administrator.
-Ensure working in C:\Temp\ports.
-
-
-
-See Section 5.4 of SOP_Port_Process_Visualizer.md for detailed troubleshooting.
-🤝 Contributing
-Contributions are welcome! To contribute:
-
-Fork the repository.
-Create a branch:git checkout -b feature/your-feature
-
-
-Commit changes:git commit -m "Add your feature"
-
-
-Push and create a pull request:git push origin feature/your-feature
-
-
-
-Please follow the coding style in port_process_visualizer.py and update SOP_Port_Process_Visualizer.md if necessary.
-📜 License
-This project is licensed under the MIT License. See the LICENSE file for details.
-📬 Contact
-For issues or suggestions, open an issue on GitHub or contact the maintainer at chandugollavilli66@gmail.com . Provide app.log and steps to reproduce any issues.
-
-Built with ❤️ using Python, Flask, and SQLite. Happy monitoring!
+Would you like this version in markdown format to drop directly into your `README.md`?
