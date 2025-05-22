@@ -45,8 +45,8 @@ icacls C:\Temp\ports /grant Everyone:F
 
 
 Clone the Repository (or copy files manually):
-git clone https://github.com/your-username/port-process-visualizer.git
-cd port-process-visualizer
+git clone https://github.com/chandugollavilli/PortProcessVisualizer
+cd PortProcessVisualizer
 
 Replace your-username with your GitHub username.
 
@@ -189,6 +189,6 @@ Please follow the coding style in port_process_visualizer.py and update SOP_Port
 📜 License
 This project is licensed under the MIT License. See the LICENSE file for details.
 📬 Contact
-For issues or suggestions, open an issue on GitHub or contact the maintainer at your.email@example.com (replace with your email). Provide app.log and steps to reproduce any issues.
+For issues or suggestions, open an issue on GitHub or contact the maintainer at chandugollavilli66@gmail.com . Provide app.log and steps to reproduce any issues.
 
 Built with ❤️ using Python, Flask, and SQLite. Happy monitoring!
