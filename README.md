@@ -1,200 +1,121 @@
-Here’s an enhanced and more visually engaging version of your **Port and Process Activity Visualizer** project README. It maintains the core information but improves formatting, readability, and appeal:
+# ⚡ **Process Visualizer** 🛡️
+
+A high-performance, real-time network port, process telemetry, and threat inspection engine built for Windows systems.
 
 ---
 
-# 🔍 **Port and Process Activity Visualizer** 🚀
+## 👨‍💻 **Author & Contact**
 
-A sleek, real-time monitoring tool for network ports and system processes on **Windows**.
-
-Designed for **network administrators**, **security analysts**, and **developers**, this intuitive tool helps visualize, filter, and analyze port activity via a modern web interface.
+* **Developer**: Chandu Gollavilli
+* **Email**: [chandugollavilli@gmail.com](mailto:chandugollavilli@gmail.com)
+* **LinkedIn**: [https://www.linkedin.com/in/chandragollavilli/](https://www.linkedin.com/in/chandragollavilli/)
+* **Repository**: [https://github.com/chandugollavilli/PortProcessVisualizer](https://github.com/chandugollavilli/PortProcessVisualizer)
 
 ---
 
 ## 📑 **Table of Contents**
-
-* [✨ Features](#-features)
-* [📸 Screenshots](#-screenshots)
-* [🛠 Installation](#-installation)
-* [🚀 Usage](#-usage)
-* [🧪 Testing](#-testing)
-* [🛡️ Troubleshooting](#-troubleshooting)
-* [🤝 Contributing](#-contributing)
-* [📜 License](#-license)
-* [📬 Contact](#-contact)
+- [🌟 Key Features](#-key-features)
+- [💻 System Architecture](#-system-architecture)
+- [🛠 Installation & Setup](#-installation--setup)
+- [🚀 Production Execution](#-production-execution)
+- [🔌 REST API Reference](#-rest-api-reference)
+- [🛡️ Threat Detection Engine](#%EF%B8%8F-threat-detection-engine)
+- [📜 License](#-license)
 
 ---
 
-## ✨ **Features**
+## 🌟 **Key Features**
 
-* 🔄 **Real-Time Monitoring**
-  Updates every 10 seconds using `psutil` to track active ports and running processes.
-* 🌐 **Web-Based UI**
-  Clean, responsive interface with data table and dynamic timeline chart.
-* 🔍 **Smart Filters**
-  Filter by specific ports (e.g., `8000`) or process names (e.g., `python.exe`).
-* 📍 **GeoIP Lookup**
-  Visualize remote IP locations (City & Country) via `ip-api.com`.
-* 📤 **Export Logs**
-  Download session data as **CSV** or **JSON** for further analysis.
-* 🚨 **Security Alerts**
-  Detects and logs suspicious behavior (e.g., non-standard apps on ports < 1024).
-* 💾 **Thread-Safe Storage**
-  SQLite-backed data persistence with robust access handling.
-* 🪟 **Optimized for Windows 10/11**
-  Excludes core system processes like `svchost.exe`.
+* ⚡ **Live Real-Time Monitoring**: Continuously scans active system sockets, network connections, and running processes using `psutil`.
+* 🖤 **Black & Hacker Grey Dashboard**: Sleek, high-contrast dark theme with matrix green & neon cyan accents, custom badges, and live telemetry cards.
+* 🛡️ **Automated Threat Detection Engine**: Automatically flags restricted low-port bindings (<1024), known backdoor/trojan ports (4444, 6667, 31337, etc.), and suspicious foreign connections.
+* 💾 **SQLite WAL High-Concurrency Storage**: Utilizes Write-Ahead Logging (`PRAGMA journal_mode=WAL;`) with thread locking and automated 7-day data retention pruning.
+* 🌐 **Multi-Threaded Production WSGI Engine**: Powered by **Waitress** WSGI server (`threads=8`) for multi-threaded Windows enterprise deployment.
+* 📍 **Smart LRU GeoIP Lookup**: Automatically classifies local/private subnets (`127.0.0.1`, `10.x.x.x`, `192.168.x.x`, `172.16-31.x.x`) locally and caches external IP lookups via `ip-api.com`.
+* 📤 **Filtered Data Export**: Download live activity logs in standard **CSV** or **JSON** formats.
 
 ---
 
-## 📸 **Screenshots**
+## 💻 **System Architecture**
 
-> Visual previews of the dashboard, timeline chart, and filter/search functionality.
+```text
+[ Windows Network Sockets & Processes ]
+                  │
+                  ▼ (psutil telemetry scan every 5s)
+     ┌──────────────────────────┐
+     │  port_process_visualizer │ ──► Threats Engine (Alerts)
+     └──────────────────────────┘
+                  │
+                  ▼ (SQLite WAL Engine - port_activity.db)
+     ┌──────────────────────────┐
+     │ Waitress Production WSGI │
+     └──────────────────────────┘
+                  │
+                  ▼ (REST APIs)
+     ┌──────────────────────────┐
+     │  Process Visualizer UI   │ ──► Black & Hacker Grey Dashboard
+     └──────────────────────────┘
+```
 
 ---
 
-## 🛠 **Installation**
+## 🛠 **Installation & Setup**
 
-> Follow these simple steps to get started:
+### Prerequisites:
+- **Operating System**: Windows 10, Windows 11, or Windows Server 2016+
+- **Python**: Python 3.8 or higher
+- **Permissions**: Administrator privileges (recommended for complete socket & process inspection)
 
-### ✅ Prerequisites:
-
-* Windows 10 or 11
-* Python 3.8+
-* Git (optional)
-* Internet access (for GeoIP)
-* Admin privileges
-
-### 🔧 Setup:
+### Installation Steps:
 
 ```powershell
-mkdir C:\Temp\ports
-cd C:\Temp\ports
-icacls C:\Temp\ports /grant Everyone:F
-git clone https://github.com/chandugollavilli/PortProcessVisualizer
+# 1. Clone the repository
+git clone https://github.com/chandugollavilli/PortProcessVisualizer.git
 cd PortProcessVisualizer
-pip install psutil flask requests
+
+# 2. Install production Python dependencies
+pip install psutil flask requests waitress
 ```
-
-Ensure these files are present:
-
-* `port_process_visualizer.py`
-* `SOP_Port_Process_Visualizer.md`
-* `templates/index.html`
 
 ---
 
-## 🚀 **Usage**
+## 🚀 **Production Execution**
 
-### ▶️ Run the Application:
-
+### Run in Live Production Mode:
 ```powershell
-cd C:\Temp\ports
-python port_process_visualizer.py
+python run_production.py
 ```
 
-Visit [http://localhost:5000](http://localhost:5000) to explore the dashboard.
-
-### 🧪 Generate Test Data:
-
-```bash
-python -m http.server 8000
-# View 'python.exe' on port 8000 in the UI
-taskkill /IM python.exe /F
-```
-
-### 🚨 Monitor Alerts:
-
-```bash
-python -m http.server 80
-type alerts.log
-```
+Open your browser and navigate to: **[http://127.0.0.1:5000](http://127.0.0.1:5000)**
 
 ---
 
-## 🧪 **Testing**
+## 🔌 **REST API Reference**
 
-### 🔍 Database Structure:
-
-```python
-import sqlite3
-conn = sqlite3.connect('port_activity.db')
-c = conn.cursor()
-c.execute("PRAGMA table_info(port_activity)")
-print(c.fetchall())
-conn.close()
-```
-
-Expected columns: `timestamp`, `pid`, `process_name`, `port`, `protocol`, `remote_ip`, `status`, `location`
-
-### ✅ UI Filters:
-
-* Filter by `8000` or `python`
-* Results update dynamically
-
-### 🌍 GeoIP Test:
-
-```bash
-curl http://example.com
-```
-
-Expected location (e.g., “Mumbai, India”) in the UI.
-
-### 📤 Export:
-
-Use UI buttons to download CSV or JSON.
-
-### 🚨 Alert Validation:
-
-Check `alerts.log` after running a low-port process.
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/data` | `GET` | Fetches live active sockets, CPU/RAM metrics, and timeline data. Query params: `port`, `process`, `status`, `protocol`. |
+| `/api/alerts` | `GET` | Returns active security threat alerts. Filter by `status` (`ACTIVE` or `ACKNOWLEDGED`). |
+| `/api/alerts/acknowledge/<id>` | `POST` | Acknowledges and dismisses a security threat incident. |
+| `/api/processes` | `GET` | Retrieves full running process inventory with PID, EXE path, username, CPU %, RAM MB, and socket counts. |
+| `/api/export/csv` | `GET` | Exports socket activity logs to CSV format. |
+| `/api/export/json` | `GET` | Exports socket activity logs to JSON format. |
 
 ---
 
-## 🛡️ **Troubleshooting**
+## 🛡️ **Threat Detection Engine**
 
-| Issue                | Solution                                    |
-| -------------------- | ------------------------------------------- |
-| `database is locked` | Delete `port_activity.db` and restart       |
-| UI not updating      | Check browser console (F12) & `/api/data`   |
-| GeoIP not showing    | Test: `curl http://ip-api.com/json/8.8.8.8` |
-| General issues       | Use Admin PowerShell, verify folder access  |
-
-📘 Refer to **Section 5.4** of `SOP_Port_Process_Visualizer.md` for advanced fixes.
+The threat engine automatically inspects network traffic and triggers alert incidents for:
+1. **Privileged Port Binding (`CRITICAL`)**: Non-system process binding to ports < 1024.
+2. **Known Threat Port (`CRITICAL`)**: Socket binding to known reverse shell/trojan ports (e.g., `4444` Metasploit, `6667` IRC botnet, `31337` Back Orifice, `1337` LEET, `5555` ADB debug).
+3. **Unusual Remote Connection (`WARNING`)**: Active outbound connection (`ESTABLISHED`) to non-standard remote IP addresses.
 
 ---
 
-## 🤝 **Contributing**
-
-We welcome your contributions!
-To add features or fix issues:
-
-```bash
-# Fork and clone
-git checkout -b feature/your-feature
-# After edits
-git commit -m "Add your feature"
-git push origin feature/your-feature
-```
-
-➡️ Submit a Pull Request and follow the project's coding style.
-
----
-
-## 📜 License
+## 📜 **License**
 
 Licensed under the [MIT License](LICENSE).
 
 ---
 
-## 📬 Contact
-
-💬 Open a GitHub issue or email the maintainer: **[chandugollavilli66@gmail.com](mailto:chandugollavilli66@gmail.com)**
-📎 Include your `app.log` and exact steps to reproduce any issues.
-
----
-
-### Built with ❤️ using Python, Flask & SQLite
-
-> Real-time insights. Secure systems. Simplified.
-> Happy monitoring! 🧠🔐📊
-
----
-
+### Built by **Chandu Gollavilli** &bull; [LinkedIn](https://www.linkedin.com/in/chandragollavilli/) &bull; [Email](mailto:chandugollavilli@gmail.com)

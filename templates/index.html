@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Process Visualizer</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --bg-dark: #000000;
+            --card-bg: #111111;
+            --card-border: #222222;
+            --accent-green: #10b981;
+            --accent-cyan: #06b6d4;
+            --accent-purple: #8b5cf6;
+            --accent-rose: #f43f5e;
+            --accent-amber: #f59e0b;
+            --text-primary: #f4f4f5;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 1.5rem 2rem;
+        }
+
+        .container { max-width: 1600px; margin: 0 auto; }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1.25rem;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .brand { display: flex; align-items: center; gap: 1rem; }
+        .brand-icon {
+            width: 48px; height: 48px;
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.4rem; color: var(--accent-green);
+        }
+        .brand-title h1 {
+            font-size: 1.6rem; font-weight: 800; letter-spacing: -0.025em;
+            color: #ffffff;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .brand-title p { font-size: 0.85rem; color: var(--text-secondary); }
+
+        .header-controls { display: flex; align-items: center; gap: 1.25rem; }
+
+        .sys-meter {
+            display: flex; align-items: center; gap: 0.75rem;
+            background: #18181b;
+            border: 1px solid var(--card-border);
+            padding: 0.4rem 0.85rem; border-radius: 8px;
+            font-size: 0.8rem; color: var(--text-secondary);
+        }
+        .meter-bar {
+            width: 60px; height: 6px; background: #27272a;
+            border-radius: 3px; overflow: hidden;
+        }
+        .meter-fill { height: 100%; width: 0%; background: var(--accent-green); transition: width 0.3s ease; }
+
+        .status-badge {
+            display: flex; align-items: center; gap: 0.5rem;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            padding: 0.45rem 0.95rem; border-radius: 9999px;
+            font-size: 0.85rem; font-weight: 600; color: var(--accent-green);
+        }
+        .pulse-dot {
+            width: 8px; height: 8px; background-color: var(--accent-green);
+            border-radius: 50%; animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        /* Metrics Grid */
+        .metrics-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.25rem; margin-bottom: 1.5rem;
+        }
+        .metric-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border); border-radius: 14px;
+            padding: 1.25rem; display: flex; align-items: center; gap: 1rem;
+            transition: all 0.2s ease;
+        }
+        .metric-card:hover { border-color: #3f3f46; transform: translateY(-2px); }
+        .metric-icon {
+            width: 48px; height: 48px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center; font-size: 1.25rem;
+            background: #18181b; border: 1px solid #27272a;
+        }
+        .metric-icon.green { color: var(--accent-green); }
+        .metric-icon.cyan { color: var(--accent-cyan); }
+        .metric-icon.purple { color: var(--accent-purple); }
+        .metric-icon.rose { color: var(--accent-rose); }
+        
+        .metric-info h3 { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+        .metric-value { font-size: 1.6rem; font-weight: 800; color: #ffffff; margin-top: 0.1rem; font-family: 'JetBrains Mono', monospace; }
+
+        /* Tabs Navigation */
+        .tabs-nav {
+            display: flex; gap: 0.75rem; border-bottom: 1px solid var(--card-border);
+            margin-bottom: 1.5rem; padding-bottom: 0.5rem;
+        }
+        .tab-btn {
+            background: transparent; border: 1px solid transparent; color: var(--text-secondary);
+            font-size: 0.9rem; font-weight: 600; padding: 0.65rem 1.1rem;
+            border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 0.6rem;
+            transition: all 0.2s ease;
+        }
+        .tab-btn:hover { color: #ffffff; background: #18181b; }
+        .tab-btn.active {
+            color: #ffffff; background: #18181b;
+            border-color: #3f3f46;
+        }
+        .tab-btn .nav-badge {
+            background: var(--accent-rose); color: white; border-radius: 9999px;
+            padding: 0.15rem 0.5rem; font-size: 0.75rem; font-weight: 700;
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Controls Section */
+        .controls-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border); border-radius: 12px;
+            padding: 1rem 1.25rem; margin-bottom: 1.5rem;
+            display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem;
+        }
+        .search-group { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; flex: 1; }
+        .input-wrapper { position: relative; min-width: 180px; }
+        .input-wrapper i { position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.85rem; }
+        .input-wrapper input, .input-wrapper select {
+            width: 100%; background: #000000; border: 1px solid #27272a;
+            border-radius: 8px; padding: 0.55rem 0.85rem 0.55rem 2.4rem; color: var(--text-primary);
+            font-family: inherit; font-size: 0.85rem;
+        }
+        .input-wrapper input:focus, .input-wrapper select:focus {
+            outline: none; border-color: var(--accent-green); box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+        }
+        
+        .btn {
+            padding: 0.55rem 1.1rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem;
+            cursor: pointer; border: none; display: inline-flex; align-items: center; gap: 0.5rem;
+            transition: all 0.2s ease; text-decoration: none;
+        }
+        .btn-primary { background: var(--accent-green); color: #000000; font-weight: 700; }
+        .btn-primary:hover { opacity: 0.9; }
+        .btn-secondary { background: #18181b; color: var(--text-secondary); border: 1px solid #27272a; }
+        .btn-secondary:hover { background: #27272a; color: #ffffff; }
+        .btn-ack { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+        .btn-ack:hover { background: rgba(16, 185, 129, 0.3); }
+
+        /* Tables */
+        .section-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border); border-radius: 14px; padding: 1.5rem;
+        }
+        .table-responsive { width: 100%; overflow-x: auto; border-radius: 8px; border: 1px solid var(--card-border); }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; }
+        th {
+            background: #18181b; padding: 0.8rem 1rem; font-weight: 600;
+            color: var(--text-secondary); border-bottom: 1px solid var(--card-border);
+            text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em;
+        }
+        td { padding: 0.85rem 1rem; border-bottom: 1px solid #18181b; color: var(--text-primary); }
+        tbody tr:hover { background: #18181b; }
+
+        .exe-path { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* Badges */
+        .badge { display: inline-flex; align-items: center; padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 0.72rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .badge-tcp { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
+        .badge-udp { background: rgba(139, 92, 246, 0.15); color: var(--accent-purple); border: 1px solid rgba(139, 92, 246, 0.3); }
+        .badge-critical { background: rgba(244, 63, 94, 0.2); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.4); }
+        .badge-warning { background: rgba(245, 158, 11, 0.2); color: #fde047; border: 1px solid rgba(245, 158, 11, 0.4); }
+
+        .status-pill { font-size: 0.75rem; padding: 0.2rem 0.55rem; border-radius: 9999px; font-weight: 600; }
+        .status-listening { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+        .status-established { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); }
+        .status-wait { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
+        .status-default { background: #27272a; color: var(--text-secondary); }
+
+        /* Alert Feed */
+        .alert-card {
+            background: #18181b; border: 1px solid var(--card-border);
+            border-left: 4px solid var(--accent-rose); border-radius: 8px;
+            padding: 1rem 1.25rem; margin-bottom: 1rem; display: flex;
+            justify-content: space-between; align-items: center; gap: 1rem;
+        }
+        .alert-card.warning { border-left-color: var(--accent-amber); }
+        .alert-info h4 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.5rem; }
+        .alert-info p { font-size: 0.85rem; color: var(--text-secondary); }
+        .alert-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem; font-family: 'JetBrains Mono', monospace; }
+
+        /* Analytics Grid */
+        .analytics-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; }
+        .chart-box { height: 340px; position: relative; }
+
+        /* Toast Container */
+        #toastContainer { position: fixed; bottom: 2rem; right: 2rem; z-index: 9999; display: flex; flex-direction: column; gap: 0.75rem; }
+        .toast {
+            background: #18181b; border: 1px solid rgba(244, 63, 94, 0.5);
+            border-radius: 10px; padding: 1rem 1.25rem; color: white;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.8); display: flex; align-items: center; gap: 0.85rem;
+            animation: slideIn 0.3s ease forwards; max-width: 380px;
+        }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        footer { margin-top: 2.5rem; text-align: center; color: var(--text-muted); font-size: 0.8rem; padding-top: 1rem; border-top: 1px solid var(--card-border); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="brand">
+                <div class="brand-icon">
+                    <i class="fa-solid fa-terminal"></i>
+                </div>
+                <div class="brand-title">
+                    <h1>Process Visualizer</h1>
+                    <p>Real-Time Windows Socket & Process Intelligence</p>
+                </div>
+            </div>
+
+            <div class="header-controls">
+                <div class="sys-meter">
+                    <span><i class="fa-solid fa-microchip"></i> CPU</span>
+                    <div class="meter-bar"><div class="meter-fill" id="cpuMeter"></div></div>
+                    <span id="cpuVal">0%</span>
+                </div>
+                <div class="sys-meter">
+                    <span><i class="fa-solid fa-memory"></i> RAM</span>
+                    <div class="meter-bar"><div class="meter-fill" id="ramMeter"></div></div>
+                    <span id="ramVal">0%</span>
+                </div>
+                <div class="status-badge">
+                    <div class="pulse-dot"></div>
+                    <span>Engine Active</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- KPI Metrics Grid -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-icon green"><i class="fa-solid fa-ethernet"></i></div>
+                <div class="metric-info">
+                    <h3>Active Sockets</h3>
+                    <div class="metric-value" id="metricPorts">0</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon cyan"><i class="fa-solid fa-tower-broadcast"></i></div>
+                <div class="metric-info">
+                    <h3>Listening Ports</h3>
+                    <div class="metric-value" id="metricListening">0</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon green"><i class="fa-solid fa-link"></i></div>
+                <div class="metric-info">
+                    <h3>Established</h3>
+                    <div class="metric-value" id="metricEstablished">0</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon purple"><div class="metric-icon purple"><i class="fa-solid fa-microchip"></i></div></div>
+                <div class="metric-info">
+                    <h3>Active Processes</h3>
+                    <div class="metric-value" id="metricProcesses">0</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon rose"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <div class="metric-info">
+                    <h3>Threat Alerts</h3>
+                    <div class="metric-value" id="metricAlerts">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="tabs-nav">
+            <button class="tab-btn active" onclick="switchTab('socketsTab', this)">
+                <i class="fa-solid fa-network-wired"></i> Socket Inspector
+            </button>
+            <button class="tab-btn" onclick="switchTab('threatsTab', this)">
+                <i class="fa-solid fa-shield-halved"></i> Threat Center
+                <span class="nav-badge" id="alertNavBadge">0</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('processesTab', this)">
+                <i class="fa-solid fa-list-check"></i> Process Manager
+            </button>
+            <button class="tab-btn" onclick="switchTab('analyticsTab', this)">
+                <i class="fa-solid fa-chart-line"></i> Traffic Analytics
+            </button>
+        </div>
+
+        <!-- TAB 1: SOCKET INSPECTOR -->
+        <div id="socketsTab" class="tab-content active">
+            <div class="controls-card">
+                <div class="search-group">
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-hashtag"></i>
+                        <input type="number" id="portFilter" placeholder="Port (e.g. 8000)">
+                    </div>
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="processFilter" placeholder="Process Name or Path">
+                    </div>
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-filter"></i>
+                        <select id="statusFilter">
+                            <option value="">All Connection States</option>
+                            <option value="LISTEN">LISTEN</option>
+                            <option value="ESTABLISHED">ESTABLISHED</option>
+                            <option value="CLOSE_WAIT">CLOSE_WAIT</option>
+                            <option value="TIME_WAIT">TIME_WAIT</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="fetchData()">
+                        <i class="fa-solid fa-filter"></i> Apply
+                    </button>
+                    <button class="btn btn-secondary" onclick="resetFilters()">
+                        <i class="fa-solid fa-rotate-left"></i> Reset
+                    </button>
+                </div>
+                <div>
+                    <a href="/api/export/csv" class="btn btn-secondary"><i class="fa-solid fa-file-csv"></i> Export CSV</a>
+                    <a href="/api/export/json" class="btn btn-secondary" target="_blank"><i class="fa-solid fa-file-code"></i> Export JSON</a>
+                </div>
+            </div>
+
+            <div class="section-card">
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>PID</th>
+                                <th>Process Name</th>
+                                <th>Executable Path</th>
+                                <th>Local Port</th>
+                                <th>Proto</th>
+                                <th>Remote Address</th>
+                                <th>State</th>
+                                <th>GeoIP Location</th>
+                            </tr>
+                        </thead>
+                        <tbody id="socketsTableBody">
+                            <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading active socket telemetry...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: THREAT CENTER -->
+        <div id="threatsTab" class="tab-content">
+            <div class="section-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+                    <h2><i class="fa-solid fa-shield-virus" style="color: var(--accent-rose);"></i> Active Security Incident Feed</h2>
+                    <span style="font-size: 0.85rem; color: var(--text-muted);">Auto-scanned every 5s</span>
+                </div>
+                <div id="threatsFeed">
+                    <p style="color: var(--text-muted); text-align: center; padding: 1.5rem;">No active security threat incidents detected.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: PROCESS TELEMETRY -->
+        <div id="processesTab" class="tab-content">
+            <div class="section-card">
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>PID</th>
+                                <th>Process Name</th>
+                                <th>User Account</th>
+                                <th>Executable Path</th>
+                                <th>CPU Usage</th>
+                                <th>Memory (RAM)</th>
+                                <th>Open Sockets</th>
+                            </tr>
+                        </thead>
+                        <tbody id="processTableBody">
+                            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Fetching running process telemetry...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: TRAFFIC ANALYTICS -->
+        <div id="analyticsTab" class="tab-content">
+            <div class="analytics-grid">
+                <div class="section-card">
+                    <h3 style="margin-bottom: 1rem;"><i class="fa-solid fa-chart-line" style="color: var(--accent-green);"></i> Active Sockets History</h3>
+                    <div class="chart-box"><canvas id="timelineChart"></canvas></div>
+                </div>
+                <div class="section-card">
+                    <h3 style="margin-bottom: 1rem;"><i class="fa-solid fa-chart-pie" style="color: var(--accent-purple);"></i> Protocol Distribution</h3>
+                    <div class="chart-box"><canvas id="protocolChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Process Visualizer &bull; Live Network Security & Telemetry Engine</p>
+        </footer>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer"></div>
+
+    <script>
+        let timelineChart = null;
+        let protocolChart = null;
+        let knownAlertIds = new Set();
+
+        function switchTab(tabId, btn) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            btn.classList.add('active');
+            if (tabId === 'threatsTab') fetchAlerts();
+            if (tabId === 'processesTab') fetchProcesses();
+        }
+
+        function resetFilters() {
+            document.getElementById('portFilter').value = '';
+            document.getElementById('processFilter').value = '';
+            document.getElementById('statusFilter').value = '';
+            fetchData();
+        }
+
+        async function fetchData() {
+            try {
+                const port = document.getElementById('portFilter').value.trim();
+                const proc = document.getElementById('processFilter').value.trim();
+                const status = document.getElementById('statusFilter').value;
+
+                const params = new URLSearchParams();
+                if (port) params.append('port', port);
+                if (proc) params.append('process', proc);
+                if (status) params.append('status', status);
+
+                const res = await fetch(`/api/data?${params.toString()}`);
+                const data = await res.json();
+
+                // Metrics
+                if (data.metrics) {
+                    document.getElementById('metricPorts').innerText = data.metrics.total_ports || 0;
+                    document.getElementById('metricListening').innerText = data.metrics.listening || 0;
+                    document.getElementById('metricEstablished').innerText = data.metrics.established || 0;
+                    document.getElementById('metricProcesses').innerText = data.metrics.processes || 0;
+                    document.getElementById('metricAlerts').innerText = data.metrics.active_alerts || 0;
+                    document.getElementById('alertNavBadge').innerText = data.metrics.active_alerts || 0;
+
+                    // System meters
+                    const cpu = Math.min(100, Math.round(data.metrics.system_cpu || 0));
+                    const ram = Math.min(100, Math.round(data.metrics.system_ram || 0));
+                    document.getElementById('cpuMeter').style.width = cpu + '%';
+                    document.getElementById('cpuVal').innerText = cpu + '%';
+                    document.getElementById('ramMeter').style.width = ram + '%';
+                    document.getElementById('ramVal').innerText = ram + '%';
+                }
+
+                // Table Update
+                const tbody = document.getElementById('socketsTableBody');
+                tbody.innerHTML = '';
+
+                if (!data.snapshot || data.snapshot.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color: var(--text-muted);">No active socket connections match filter criteria.</td></tr>';
+                } else {
+                    data.snapshot.forEach(r => {
+                        const protoBadge = r.protocol === 'UDP' ? 'badge-udp' : 'badge-tcp';
+                        let statusClass = 'status-default';
+                        if (r.status === 'LISTEN' || r.status === 'LISTENING') statusClass = 'status-listening';
+                        if (r.status === 'ESTABLISHED') statusClass = 'status-established';
+                        if (r.status.includes('WAIT')) statusClass = 'status-wait';
+
+                        const remoteStr = r.remote_ip ? `${r.remote_ip}:${r.remote_port}` : '0.0.0.0:*';
+
+                        tbody.innerHTML += `
+                            <tr>
+                                <td><strong style="color: var(--text-secondary);">${r.pid}</strong></td>
+                                <td><span style="font-weight:600; color: #ffffff;">${r.process_name}</span></td>
+                                <td><div class="exe-path" title="${r.exe_path}">${r.exe_path || 'N/A'}</div></td>
+                                <td><strong style="color: var(--accent-green); font-family: 'JetBrains Mono', monospace;">${r.port}</strong></td>
+                                <td><span class="badge ${protoBadge}">${r.protocol}</span></td>
+                                <td><span style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--text-secondary);">${remoteStr}</span></td>
+                                <td><span class="status-pill ${statusClass}">${r.status}</span></td>
+                                <td><span style="font-size: 0.8rem; color: var(--text-secondary);"><i class="fa-solid fa-location-dot"></i> ${r.location}</span></td>
+                            </tr>`;
+                    });
+                }
+
+                // Render Charts
+                renderCharts(data);
+                fetchAlerts();
+
+            } catch (err) {
+                console.error("Data fetch error:", err);
+            }
+        }
+
+        async function fetchAlerts() {
+            try {
+                const res = await fetch('/api/alerts?status=ACTIVE');
+                const data = await res.json();
+                const feed = document.getElementById('threatsFeed');
+                
+                if (!data.alerts || data.alerts.length === 0) {
+                    feed.innerHTML = '<p style="color: var(--text-muted); padding: 1.5rem; text-align: center;">No active security threat incidents detected.</p>';
+                    return;
+                }
+
+                feed.innerHTML = '';
+                data.alerts.forEach(a => {
+                    const isWarn = a.severity === 'WARNING';
+                    const badgeClass = isWarn ? 'badge-warning' : 'badge-critical';
+                    
+                    if (!knownAlertIds.has(a.id)) {
+                        knownAlertIds.add(a.id);
+                        showToast(a.severity, a.rule_name, a.description);
+                    }
+
+                    feed.innerHTML += `
+                        <div class="alert-card ${isWarn ? 'warning' : ''}">
+                            <div class="alert-info">
+                                <h4>
+                                    <span class="badge ${badgeClass}">${a.severity}</span>
+                                    ${a.rule_name}
+                                </h4>
+                                <p>${a.description}</p>
+                                <div class="alert-meta">Timestamp: ${a.timestamp} &bull; Process: ${a.process_name} (PID: ${a.pid}) &bull; Port: ${a.port}</div>
+                            </div>
+                            <button class="btn btn-ack" onclick="acknowledgeAlert(${a.id})">
+                                <i class="fa-solid fa-check"></i> Acknowledge
+                            </button>
+                        </div>`;
+                });
+
+            } catch (err) {
+                console.error("Alerts fetch error:", err);
+            }
+        }
+
+        async function acknowledgeAlert(alertId) {
+            try {
+                const res = await fetch(`/api/alerts/acknowledge/${alertId}`, { method: 'POST' });
+                const result = await res.json();
+                if (result.success) {
+                    fetchAlerts();
+                    fetchData();
+                }
+            } catch (err) {
+                console.error("Alert acknowledge error:", err);
+            }
+        }
+
+        async function fetchProcesses() {
+            try {
+                const res = await fetch('/api/processes');
+                const data = await res.json();
+                const tbody = document.getElementById('processTableBody');
+                tbody.innerHTML = '';
+
+                if (!data.processes || data.processes.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No process data available.</td></tr>';
+                    return;
+                }
+
+                data.processes.forEach(p => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><strong>${p.pid}</strong></td>
+                            <td><span style="font-weight:600; color: #ffffff;">${p.process_name}</span></td>
+                            <td><span style="font-size:0.8rem; color: var(--text-secondary);">${p.username}</span></td>
+                            <td><div class="exe-path" title="${p.exe_path}">${p.exe_path}</div></td>
+                            <td><strong style="color: var(--accent-green); font-family: 'JetBrains Mono', monospace;">${p.cpu_percent}%</strong></td>
+                            <td><span>${p.memory_mb} MB</span></td>
+                            <td><span class="badge badge-tcp">${p.open_ports} Sockets</span></td>
+                        </tr>`;
+                });
+
+            } catch (err) {
+                console.error("Processes fetch error:", err);
+            }
+        }
+
+        function showToast(severity, title, msg) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerHTML = `
+                <i class="fa-solid fa-shield-triangle-exclamation" style="font-size: 1.4rem; color: var(--accent-rose);"></i>
+                <div>
+                    <h5 style="font-size:0.85rem; font-weight:700;">${title}</h5>
+                    <p style="font-size:0.75rem; color:#a1a1aa; margin-top:0.15rem;">${msg}</p>
+                </div>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 6000);
+        }
+
+        function renderCharts(data) {
+            // Timeline Chart
+            const ctx1 = document.getElementById('timelineChart').getContext('2d');
+            const labels = data.timeline ? data.timeline.map(t => new Date(t.timestamp).toLocaleTimeString()) : [];
+            const counts = data.timeline ? data.timeline.map(t => t.port_count) : [];
+
+            if (timelineChart) {
+                timelineChart.data.labels = labels;
+                timelineChart.data.datasets[0].data = counts;
+                timelineChart.update();
+            } else {
+                timelineChart = new Chart(ctx1, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Active Ports',
+                            data: counts,
+                            borderColor: '#10b981',
+                            borderWidth: 2,
+                            fill: true,
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            tension: 0.35
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#71717a' } }, y: { ticks: { color: '#71717a' } } } }
+                });
+            }
+
+            // Protocol Donut Chart
+            const ctx2 = document.getElementById('protocolChart').getContext('2d');
+            const tcpCount = data.snapshot ? data.snapshot.filter(r => r.protocol === 'TCP').length : 0;
+            const udpCount = data.snapshot ? data.snapshot.filter(r => r.protocol === 'UDP').length : 0;
+
+            if (protocolChart) {
+                protocolChart.data.datasets[0].data = [tcpCount, udpCount];
+                protocolChart.update();
+            } else {
+                protocolChart = new Chart(ctx2, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['TCP Sockets', 'UDP Sockets'],
+                        datasets: [{
+                            data: [tcpCount, udpCount],
+                            backgroundColor: ['#06b6d4', '#8b5cf6'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#a1a1aa' } } } }
+                });
+            }
+        }
+
+        fetchData();
+        setInterval(fetchData, 5000);
+    </script>
+</body>
+</html>

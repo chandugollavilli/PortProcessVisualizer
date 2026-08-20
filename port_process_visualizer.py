@@ -1,133 +1,394 @@
 import psutil
 import sqlite3
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import threading
-from flask import Flask, render_template, send_file, request
+from flask import Flask, render_template, send_file, request, jsonify, Response
 import json
 import logging
 import os
-import queue
 import requests
 import csv
 import io
+import functools
 
-# Configure logging
-logging.basicConfig(filename='app.log', level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
+# Configure production logging
+logging.basicConfig(
+    filename='app.log',
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] (%(threadName)s) %(message)s'
+)
 
 app = Flask(__name__)
 
-# Thread-safe database connection manager
+# Global Database Path configuration
+DB_PATH = 'port_activity.db'
+
+# Enterprise Thread-Safe Database Manager with WAL Mode
 class DatabaseManager:
-    def __init__(self, db_path):
-        self.db_path = db_path
+    def __init__(self, db_path=None):
+        self.db_path = db_path if db_path else DB_PATH
         self.lock = threading.Lock()
+        self._configure_wal()
+
+    def _configure_wal(self):
+        """Configure SQLite WAL mode for high concurrency concurrent reads/writes."""
+        try:
+            with self.lock:
+                conn = sqlite3.connect(self.db_path, timeout=30)
+                c = conn.cursor()
+                c.execute('PRAGMA journal_mode=WAL;')
+                c.execute('PRAGMA synchronous=NORMAL;')
+                c.execute('PRAGMA busy_timeout=10000;')
+                conn.commit()
+                conn.close()
+        except Exception as e:
+            logging.error(f"Failed to configure SQLite WAL mode: {e}")
 
     def execute(self, query, params=(), fetch=False):
-        retries = 3
+        retries = 5
         for attempt in range(retries):
+            conn = None
             try:
                 with self.lock:
-                    conn = sqlite3.connect(self.db_path, timeout=10)
+                    conn = sqlite3.connect(self.db_path, timeout=30)
+                    conn.row_factory = sqlite3.Row
                     c = conn.cursor()
                     c.execute(query, params)
-                    result = c.fetchall() if fetch else None
+                    result = [dict(row) for row in c.fetchall()] if fetch else None
                     conn.commit()
-                    conn.close()
                     return result
             except sqlite3.OperationalError as e:
-                logging.error(f"Database error (attempt {attempt + 1}/{retries}): {e}")
+                logging.warning(f"Database operational error (attempt {attempt + 1}/{retries}): {e}")
                 if attempt == retries - 1:
                     raise
-                time.sleep(1)
+                time.sleep(0.3)
             except Exception as e:
-                logging.error(f"Unexpected error: {e}")
+                logging.error(f"Unexpected database error: {e}")
                 raise
             finally:
-                if 'conn' in locals():
-                    conn.close()
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
-# Initialize SQLite database
+    def execute_many(self, query, params_list):
+        if not params_list:
+            return
+        retries = 5
+        for attempt in range(retries):
+            conn = None
+            try:
+                with self.lock:
+                    conn = sqlite3.connect(self.db_path, timeout=30)
+                    c = conn.cursor()
+                    c.executemany(query, params_list)
+                    conn.commit()
+                    return
+            except sqlite3.OperationalError as e:
+                logging.warning(f"Database execute_many error (attempt {attempt + 1}/{retries}): {e}")
+                if attempt == retries - 1:
+                    raise
+                time.sleep(0.3)
+            except Exception as e:
+                logging.error(f"Unexpected error in execute_many: {e}")
+                raise
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+# Shared DB Manager instance accessor
+def get_db_manager():
+    return DatabaseManager(DB_PATH)
+
+# Initialize Enterprise Database Tables, Migrations & Indices
 def init_db(db_manager):
     try:
-        # Create table if it doesn't exist
-        db_manager.execute('''CREATE TABLE IF NOT EXISTS port_activity
-                         (timestamp TEXT, pid INTEGER, process_name TEXT, port INTEGER,
-                          protocol TEXT, remote_ip TEXT, status TEXT)''')
-        
-        # Check if location column exists and add it if missing
-        result = db_manager.execute('''PRAGMA table_info(port_activity)''', fetch=True)
-        columns = [row[1] for row in result]
+        # Table 1: Port Activity Snapshots
+        db_manager.execute('''
+            CREATE TABLE IF NOT EXISTS port_activity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                pid INTEGER,
+                process_name TEXT,
+                exe_path TEXT,
+                port INTEGER,
+                protocol TEXT,
+                remote_ip TEXT,
+                remote_port INTEGER,
+                status TEXT,
+                location TEXT
+            )
+        ''')
+
+        # Schema Migrations check for legacy DBs
+        result = db_manager.execute('''PRAGMA table_info(port_activity)''', fetch=True) or []
+        columns = [row['name'] for row in result]
+        if 'exe_path' not in columns:
+            db_manager.execute('ALTER TABLE port_activity ADD COLUMN exe_path TEXT')
+            logging.info("Migrated port_activity: added exe_path column.")
+        if 'remote_port' not in columns:
+            db_manager.execute('ALTER TABLE port_activity ADD COLUMN remote_port INTEGER')
+            logging.info("Migrated port_activity: added remote_port column.")
         if 'location' not in columns:
-            db_manager.execute('''ALTER TABLE port_activity ADD COLUMN location TEXT''')
-            logging.info("Added location column to port_activity table")
-        
-        logging.info("Database initialized successfully")
-    except sqlite3.OperationalError as e:
-        logging.error(f"Failed to initialize database: {e}")
+            db_manager.execute('ALTER TABLE port_activity ADD COLUMN location TEXT')
+            logging.info("Migrated port_activity: added location column.")
+
+        # Table 2: Security Threat Alerts
+        db_manager.execute('''
+            CREATE TABLE IF NOT EXISTS security_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                severity TEXT,
+                pid INTEGER,
+                process_name TEXT,
+                port INTEGER,
+                remote_ip TEXT,
+                rule_name TEXT,
+                description TEXT,
+                status TEXT DEFAULT 'ACTIVE'
+            )
+        ''')
+
+        # Table 3: Process Inventory & Telemetry
+        db_manager.execute('''
+            CREATE TABLE IF NOT EXISTS process_inventory (
+                timestamp TEXT,
+                pid INTEGER,
+                process_name TEXT,
+                exe_path TEXT,
+                username TEXT,
+                cpu_percent REAL,
+                memory_mb REAL,
+                open_ports INTEGER,
+                PRIMARY KEY (timestamp, pid)
+            )
+        ''')
+
+        # Indices for optimal query performance
+        db_manager.execute('CREATE INDEX IF NOT EXISTS idx_pa_timestamp ON port_activity(timestamp);')
+        db_manager.execute('CREATE INDEX IF NOT EXISTS idx_pa_port ON port_activity(port);')
+        db_manager.execute('CREATE INDEX IF NOT EXISTS idx_pa_proc ON port_activity(process_name);')
+        db_manager.execute('CREATE INDEX IF NOT EXISTS idx_alerts_status ON security_alerts(status);')
+
+        logging.info("Database schema and indices initialized successfully.")
+    except Exception as e:
+        logging.error(f"Error initializing enterprise database: {e}")
         raise
 
-# GeoIP lookup using ip-api.com
+# Network Subnet Helper
+def is_private_ip(ip):
+    if not ip or ip in ('', '0.0.0.0', '127.0.0.1', '::', '::1'):
+        return True
+    if ip.startswith(('10.', '192.168.', '127.', '169.254.', 'fe80:')):
+        return True
+    if ip.startswith('172.'):
+        try:
+            second_octet = int(ip.split('.')[1])
+            if 16 <= second_octet <= 31:
+                return True
+        except (IndexError, ValueError):
+            pass
+    return False
+
+# Enterprise GeoIP Lookup Engine
+@functools.lru_cache(maxsize=2048)
 def get_geoip(ip):
-    if not ip or ip in ('', '0.0.0.0', '::'):
-        return ''
+    if is_private_ip(ip):
+        return 'Local / Internal Network'
     try:
-        response = requests.get(f'http://ip-api.com/json/{ip}', timeout=5)
+        response = requests.get(f'http://ip-api.com/json/{ip}?fields=status,country,city,isp,org', timeout=3)
         if response.status_code == 200:
             data = response.json()
-            if data['status'] == 'success':
-                return f"{data.get('city', '')}, {data.get('country', '')}"
-        return 'Unknown'
-    except requests.RequestException as e:
-        logging.error(f"GeoIP lookup failed for {ip}: {e}")
-        return 'Unknown'
+            if data.get('status') == 'success':
+                city = data.get('city', '')
+                country = data.get('country', '')
+                isp = data.get('isp', '')
+                location_str = f"{city}, {country}" if city and country else (country or city or 'External')
+                if isp:
+                    location_str += f" ({isp})"
+                return location_str
+        return 'Unknown Location'
+    except requests.RequestException:
+        return 'Unknown Location'
 
-# Collect port and process data
+# System Process Whitelist for Privilege Alert Filter
+SYSTEM_WHITELIST = {
+    'sshd', 'nginx', 'apache2', 'system', 'svchost.exe', 'system idle process',
+    'lsass.exe', 'services.exe', 'smss.exe', 'spoolsv.exe', 'csrss.exe',
+    'wininit.exe', 'winlogon.exe', 'explorer.exe', 'sqlservr.exe', 'mysqld.exe',
+    'postgres.exe', 'httpd.exe'
+}
+
+# Known Malicious / Backdoor Port Rules
+KNOWN_THREAT_PORTS = {
+    4444: 'Metasploit / Reverse Shell Port',
+    6667: 'IRC Botnet Control Channel',
+    31337: 'Back Orifice Trojan Port',
+    1337: 'LEET Backdoor Listening Port',
+    5555: 'Android ADB Debug Exposure',
+    8888: 'Unsecured Alt HTTP Control Server',
+    9999: 'Raw Socket Backdoor Connection'
+}
+
+# Data Retention Policy (Keep last 7 days)
+def prune_old_records(db_manager):
+    try:
+        cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+        db_manager.execute('DELETE FROM port_activity WHERE timestamp < ?', (cutoff,))
+        db_manager.execute('DELETE FROM process_inventory WHERE timestamp < ?', (cutoff,))
+    except Exception as e:
+        logging.error(f"Error pruning database records: {e}")
+
+# Data Collection Engine
 def collect_data(db_manager):
     try:
         timestamp = datetime.now().isoformat()
-        connections = psutil.net_connections(kind='inet')
-        
+
+        try:
+            connections = psutil.net_connections(kind='inet')
+        except (psutil.AccessDenied, PermissionError):
+            try:
+                connections = psutil.net_connections(kind='tcp') + psutil.net_connections(kind='udp')
+            except Exception:
+                connections = []
+
+        socket_records = []
+        process_cache = {}
+        alerts_to_log = []
+
         for conn in connections:
-            if conn.laddr:
-                pid = conn.pid if conn.pid else 0
-                try:
-                    process_name = psutil.Process(pid).name() if pid else "unknown"
-                except psutil.NoSuchProcess:
-                    process_name = "unknown"
-                remote_ip = conn.raddr.ip if conn.raddr else ''
-                location = get_geoip(remote_ip)
-                db_manager.execute('''INSERT INTO port_activity
-                                    (timestamp, pid, process_name, port, protocol, remote_ip, status, location)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                                 (timestamp, pid, process_name, conn.laddr.port,
-                                  'tcp' if conn.type == 1 else 'udp',
-                                  remote_ip, conn.status, location))
+            if not conn.laddr:
+                continue
+
+            pid = conn.pid if conn.pid else 0
+            proc_info = process_cache.get(pid)
+
+            if not proc_info:
+                if pid > 0:
+                    try:
+                        p = psutil.Process(pid)
+                        proc_info = {
+                            'name': p.name(),
+                            'exe': p.exe() if hasattr(p, 'exe') else 'N/A',
+                            'username': p.username() if hasattr(p, 'username') else 'N/A',
+                            'cpu': p.cpu_percent(interval=None),
+                            'mem': p.memory_info().rss / (1024 * 1024) if hasattr(p, 'memory_info') else 0.0,
+                            'ports': set()
+                        }
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, Exception):
+                        proc_info = {
+                            'name': 'System / Protected',
+                            'exe': 'N/A',
+                            'username': 'SYSTEM',
+                            'cpu': 0.0,
+                            'mem': 0.0,
+                            'ports': set()
+                        }
+                else:
+                    proc_info = {
+                        'name': 'System Idle / Kernel',
+                        'exe': 'N/A',
+                        'username': 'NT AUTHORITY\\SYSTEM',
+                        'cpu': 0.0,
+                        'mem': 0.0,
+                        'ports': set()
+                    }
+                process_cache[pid] = proc_info
+
+            port = conn.laddr.port
+            proc_info['ports'].add(port)
+
+            remote_ip = conn.raddr.ip if conn.raddr else ''
+            remote_port = conn.raddr.port if conn.raddr else 0
+            location = get_geoip(remote_ip)
+            protocol = 'TCP' if conn.type == 1 else 'UDP'
+            status = conn.status if conn.status else 'ACTIVE'
+
+            socket_records.append((
+                timestamp, pid, proc_info['name'], proc_info['exe'],
+                port, protocol, remote_ip, remote_port, status, location
+            ))
+
+            # Threat Engine Inspections
+            # Rule 1: Known Threat / Backdoor Ports
+            if port in KNOWN_THREAT_PORTS:
+                alerts_to_log.append((
+                    timestamp, 'CRITICAL', pid, proc_info['name'], port, remote_ip,
+                    'Known Threat Port', f"Socket bound to {KNOWN_THREAT_PORTS[port]} (Port {port})"
+                ))
+
+            # Rule 2: Non-whitelisted Low Ports (<1024)
+            elif port < 1024 and proc_info['name'].lower() not in SYSTEM_WHITELIST:
+                alerts_to_log.append((
+                    timestamp, 'CRITICAL', pid, proc_info['name'], port, remote_ip,
+                    'Privileged Port Binding', f"Non-system process '{proc_info['name']}' bound to restricted port {port}"
+                ))
+
+            # Rule 3: Suspicious Outbound Connection to Foreign IP
+            elif status == 'ESTABLISHED' and remote_ip and not is_private_ip(remote_ip) and remote_port not in (80, 443, 8080, 8443):
+                alerts_to_log.append((
+                    timestamp, 'WARNING', pid, proc_info['name'], port, remote_ip,
+                    'Unusual Remote Connection', f"Active outbound connection to {remote_ip}:{remote_port} ({location})"
+                ))
+
+        # Batch Insert Socket Snapshot
+        if socket_records:
+            db_manager.execute_many('''
+                INSERT INTO port_activity
+                (timestamp, pid, process_name, exe_path, port, protocol, remote_ip, remote_port, status, location)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', socket_records)
+
+        # Batch Insert Process Telemetry Inventory
+        proc_records = []
+        for pid, info in process_cache.items():
+            proc_records.append((
+                timestamp, pid, info['name'], info['exe'],
+                info['username'], round(info['cpu'], 1), round(info['mem'], 1), len(info['ports'])
+            ))
         
-        suspicious_ports = db_manager.execute('''
-            SELECT timestamp, port, process_name FROM port_activity
-            WHERE port < 1024 AND process_name NOT IN ('sshd', 'nginx', 'apache2', 'System', 'svchost.exe')
-            AND timestamp = ?
-        ''', (timestamp,), fetch=True)
-        
-        if suspicious_ports:
-            with open('alerts.log', 'a') as f:
-                for row in suspicious_ports:
-                    f.write(f"[ALERT] {row[0]}: Suspicious port {row[1]} used by {row[2]}\n")
-        
-        logging.info("Data collected successfully")
-    except sqlite3.OperationalError as e:
-        logging.error(f"Database error in collect_data: {e}")
+        if proc_records:
+            db_manager.execute_many('''
+                INSERT INTO process_inventory
+                (timestamp, pid, process_name, exe_path, username, cpu_percent, memory_mb, open_ports)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', proc_records)
+
+        # Process Security Alerts (Deduplicated)
+        for alert in alerts_to_log:
+            existing = db_manager.execute('''
+                SELECT id FROM security_alerts
+                WHERE pid = ? AND port = ? AND rule_name = ? AND status = 'ACTIVE'
+            ''', (alert[2], alert[4], alert[6]), fetch=True)
+
+            if not existing:
+                db_manager.execute('''
+                    INSERT INTO security_alerts
+                    (timestamp, severity, pid, process_name, port, remote_ip, rule_name, description, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+                ''', alert)
+
+                # Write to security log file
+                with open('alerts.log', 'a', encoding='utf-8') as f:
+                    f.write(f"[{alert[1]}] {alert[0]} - {alert[6]}: {alert[7]} (PID: {alert[2]})\n")
+
+        # Maintenance Cleanup
+        prune_old_records(db_manager)
     except Exception as e:
         logging.error(f"Error in collect_data: {e}")
 
-# Background data collection thread
+# Background Collection Loop
 def data_collection_thread(db_manager):
     while True:
         collect_data(db_manager)
-        time.sleep(10)
+        time.sleep(5)
 
-# Flask routes
+# Flask Routes
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -135,206 +396,178 @@ def index():
 @app.route('/api/data')
 def get_data():
     try:
-        db_manager = DatabaseManager('port_activity.db')
-        port_filter = request.args.get('port', '')
-        process_filter = request.args.get('process', '')
-        
+        db_manager = get_db_manager()
+        port_filter = request.args.get('port', '').strip()
+        process_filter = request.args.get('process', '').strip()
+        status_filter = request.args.get('status', '').strip()
+        protocol_filter = request.args.get('protocol', '').strip()
+
         query = '''
-            SELECT DISTINCT pid, process_name, port, protocol, remote_ip, status, location
+            SELECT pid, process_name, exe_path, port, protocol, remote_ip, remote_port, status, location
             FROM port_activity
             WHERE timestamp = (SELECT MAX(timestamp) FROM port_activity)
         '''
         params = []
-        if port_filter:
+
+        if port_filter and port_filter.isdigit():
             query += ' AND port = ?'
             params.append(int(port_filter))
+
         if process_filter:
-            query += ' AND process_name LIKE ?'
+            query += ' AND (process_name LIKE ? OR exe_path LIKE ?)'
             params.append(f'%{process_filter}%')
-        
-        snapshot = db_manager.execute(query, params, fetch=True)
-        
+            params.append(f'%{process_filter}%')
+
+        if status_filter:
+            query += ' AND status = ?'
+            params.append(status_filter.upper())
+
+        if protocol_filter:
+            query += ' AND protocol = ?'
+            params.append(protocol_filter.upper())
+
+        snapshot = db_manager.execute(query, params, fetch=True) or []
+
+        # Get Chronological Timeline for Chart
         timeline = db_manager.execute('''
             SELECT timestamp, COUNT(DISTINCT port) as port_count
             FROM port_activity
             GROUP BY timestamp
             ORDER BY timestamp DESC
-            LIMIT 50
+            LIMIT 40
+        ''', fetch=True) or []
+
+        timeline_chronological = list(reversed(timeline))
+
+        # Get Active Security Alerts Count
+        active_alerts = db_manager.execute('''
+            SELECT COUNT(*) as count FROM security_alerts WHERE status = 'ACTIVE'
         ''', fetch=True)
-        
-        return json.dumps({
-            'snapshot': [{
-                'pid': row[0],
-                'process_name': row[1],
-                'port': row[2],
-                'protocol': row[3],
-                'remote_ip': row[4],
-                'status': row[5],
-                'location': row[6]
-            } for row in snapshot],
-            'timeline': [{
-                'timestamp': row[0],
-                'port_count': row[1]
-            } for row in timeline]
+        alerts_count = active_alerts[0]['count'] if active_alerts else 0
+
+        # System Resource Metrics
+        cpu_usage = psutil.cpu_percent(interval=None)
+        mem = psutil.virtual_memory()
+
+        return jsonify({
+            'snapshot': snapshot,
+            'timeline': timeline_chronological,
+            'metrics': {
+                'total_ports': len(snapshot),
+                'established': sum(1 for row in snapshot if row['status'] == 'ESTABLISHED'),
+                'listening': sum(1 for row in snapshot if row['status'] in ('LISTEN', 'LISTENING')),
+                'processes': len(set(row['pid'] for row in snapshot)),
+                'active_alerts': alerts_count,
+                'system_cpu': cpu_usage,
+                'system_ram': mem.percent
+            }
         })
-    except sqlite3.OperationalError as e:
-        logging.error(f"Database error in get_data: {e}")
-        return json.dumps({'snapshot': [], 'timeline': []})
     except Exception as e:
-        logging.error(f"Error in get_data: {e}")
-        return json.dumps({'snapshot': [], 'timeline': []})
+        logging.error(f"Error in get_data API: {e}")
+        return jsonify({'snapshot': [], 'timeline': [], 'metrics': {}})
+
+@app.route('/api/alerts')
+def get_alerts():
+    try:
+        db_manager = get_db_manager()
+        status = request.args.get('status', 'ACTIVE')
+        alerts = db_manager.execute('''
+            SELECT id, timestamp, severity, pid, process_name, port, remote_ip, rule_name, description, status
+            FROM security_alerts
+            WHERE status = ?
+            ORDER BY id DESC
+            LIMIT 100
+        ''', (status,), fetch=True) or []
+        return jsonify({'alerts': alerts})
+    except Exception as e:
+        logging.error(f"Error fetching alerts: {e}")
+        return jsonify({'alerts': []})
+
+@app.route('/api/alerts/acknowledge/<int:alert_id>', methods=['POST'])
+def acknowledge_alert(alert_id):
+    try:
+        db_manager = get_db_manager()
+        db_manager.execute('''
+            UPDATE security_alerts SET status = 'ACKNOWLEDGED' WHERE id = ?
+        ''', (alert_id,))
+        return jsonify({'success': True, 'message': f'Alert {alert_id} acknowledged.'})
+    except Exception as e:
+        logging.error(f"Error acknowledging alert: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/processes')
+def get_processes():
+    try:
+        db_manager = get_db_manager()
+        processes = db_manager.execute('''
+            SELECT pid, process_name, exe_path, username, cpu_percent, memory_mb, open_ports
+            FROM process_inventory
+            WHERE timestamp = (SELECT MAX(timestamp) FROM process_inventory)
+            ORDER BY open_ports DESC, cpu_percent DESC
+        ''', fetch=True) or []
+        return jsonify({'processes': processes})
+    except Exception as e:
+        logging.error(f"Error fetching processes: {e}")
+        return jsonify({'processes': []})
 
 @app.route('/api/export/<format>')
 def export_logs(format):
     try:
-        db_manager = DatabaseManager('port_activity.db')
+        db_manager = get_db_manager()
         data = db_manager.execute('''
-            SELECT timestamp, pid, process_name, port, protocol, remote_ip, status, location
+            SELECT timestamp, pid, process_name, exe_path, port, protocol, remote_ip, remote_port, status, location
             FROM port_activity
-            ORDER BY timestamp DESC
-        ''', fetch=True)
-        
+            ORDER BY id DESC
+            LIMIT 5000
+        ''', fetch=True) or []
+
         if format.lower() == 'csv':
             output = io.StringIO()
             writer = csv.writer(output)
-            writer.writerow(['Timestamp', 'PID', 'Process Name', 'Port', 'Protocol', 'Remote IP', 'Status', 'Location'])
+            writer.writerow(['Timestamp', 'PID', 'Process Name', 'Executable Path', 'Port', 'Protocol', 'Remote IP', 'Remote Port', 'Status', 'Location'])
             for row in data:
-                writer.writerow(row)
+                writer.writerow([
+                    row['timestamp'], row['pid'], row['process_name'], row['exe_path'],
+                    row['port'], row['protocol'], row['remote_ip'], row['remote_port'],
+                    row['status'], row['location']
+                ])
             output.seek(0)
             return send_file(
                 io.BytesIO(output.getvalue().encode('utf-8')),
                 mimetype='text/csv',
                 as_attachment=True,
-                download_name='port_activity.csv'
+                download_name='enterprise_port_activity.csv'
             )
         elif format.lower() == 'json':
-            result = [{
-                'timestamp': row[0],
-                'pid': row[1],
-                'process_name': row[2],
-                'port': row[3],
-                'protocol': row[4],
-                'remote_ip': row[5],
-                'status': row[6],
-                'location': row[7]
-            } for row in data]
-            return json.dumps(result)
+            return Response(json.dumps(data, indent=2), mimetype='application/json')
         else:
-            return json.dumps({'error': 'Invalid format. Use csv or json'}), 400
-    except sqlite3.OperationalError as e:
-        logging.error(f"Database error in export_logs: {e}")
-        return json.dumps({'error': 'Database error'}), 500
+            return jsonify({'error': 'Invalid export format. Use csv or json'}), 400
     except Exception as e:
-        logging.error(f"Error in export_logs: {e}")
-        return json.dumps({'error': 'Server error'}), 500
+        logging.error(f"Error exporting logs: {e}")
+        return jsonify({'error': 'Export failed'}), 500
 
-# HTML template
-with open('templates/index.html', 'w') as f:
-    f.write('''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Port Process Visualizer</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        canvas { max-width: 600px; margin: 20px; }
-        .filter-container { margin-bottom: 20px; }
-        .filter-container input { margin-right: 10px; padding: 5px; }
-        .export-links { margin-top: 10px; }
-    </style>
-</head>
-<body>
-    <h2>Port and Process Activity</h2>
-    <div class="filter-container">
-        <input type="number" id="portFilter" placeholder="Filter by Port (e.g., 8000)">
-        <input type="text" id="processFilter" placeholder="Filter by Process (e.g., python)">
-        <button onclick="fetchData()">Apply Filters</button>
-        <div class="export-links">
-            <a href="/api/export/csv">Export as CSV</a> | <a href="/api/export/json">Export as JSON</a>
-        </div>
-    </div>
-    <table>
-        <tr>
-            <th>PID</th>
-            <th>Process</th>
-            <th>Port</th>
-            <th>Protocol</th>
-            <th>Remote IP</th>
-            <th>Status</th>
-            <th>Location</th>
-        </tr>
-        <tbody id="tableBody"></tbody>
-    </table>
-    <h3>Port Usage Timeline</h3>
-    <canvas id="timelineChart"></canvas>
+def start_application(db_path=None):
+    global DB_PATH
+    if db_path:
+        DB_PATH = db_path
 
-    <script>
-        async function fetchData() {
-            try {
-                const portFilter = document.getElementById('portFilter').value;
-                const processFilter = document.getElementById('processFilter').value;
-                const url = `/api/data${portFilter || processFilter ? '?' : ''}${portFilter ? `port=${portFilter}` : ''}${portFilter && processFilter ? '&' : ''}${processFilter ? `process=${processFilter}` : ''}`;
-                const response = await fetch(url);
-                const data = await response.json();
-                
-                // Update table
-                const tableBody = document.getElementById('tableBody');
-                tableBody.innerHTML = '';
-                data.snapshot.forEach(row => {
-                    tableBody.innerHTML += `
-                        <tr>
-                            <td>${row.pid}</td>
-                            <td>${row.process_name}</td>
-                            <td>${row.port}</td>
-                            <td>${row.protocol}</td>
-                            <td>${row.remote_ip}</td>
-                            <td>${row.status}</td>
-                            <td>${row.location}</td>
-                        </tr>`;
-                });
-                
-                // Update chart
-                const ctx = document.getElementById('timelineChart').getContext('2d');
-                if (window.myChart) window.myChart.destroy();
-                window.myChart = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: data.timeline.map(t => new Date(t.timestamp).toLocaleTimeString()),
-                        datasets: [{
-                            label: 'Active Ports',
-                            data: data.timeline.map(t => t.port_count),
-                            borderColor: 'blue',
-                            fill: false
-                        }]
-                    },
-                    options: {
-                        scales: {
-                            y: { beginAtZero: true }
-                        }
-                    }
-                });
-            } catch (error) {
-                console.error('Error fetching data:', error);
-            }
-        }
-        
-        fetchData();
-        setInterval(fetchData, 10000);
-    </script>
-</body>
-</html>
-    ''')
+    os.makedirs('templates', exist_ok=True)
+    db_manager = get_db_manager()
+    init_db(db_manager)
+
+    # Start background collector thread once
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+        t = threading.Thread(target=data_collection_thread, args=(db_manager,), daemon=True)
+        t.name = "DataCollectorThread"
+        t.start()
 
 if __name__ == '__main__':
+    start_application()
+    print("Starting Live Production Server at http://127.0.0.1:5000")
+    
     try:
-        os.makedirs('templates', exist_ok=True)
-        db_manager = DatabaseManager('port_activity.db')
-        init_db(db_manager)
-        threading.Thread(target=data_collection_thread, args=(db_manager,), daemon=True).start()
-        app.run(debug=True)
-    except Exception as e:
-        logging.error(f"Startup error: {e}")
-        print(f"Failed to start: {e}")
+        from waitress import serve
+        print("Running with Waitress Production WSGI Server...")
+        serve(app, host='127.0.0.1', port=5000, threads=8)
+    except ImportError:
+        app.run(host='127.0.0.1', port=5000, debug=True, use_reloader=False)
