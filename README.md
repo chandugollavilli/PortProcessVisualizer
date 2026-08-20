@@ -8,13 +8,19 @@
 [![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-cyan.svg)](#-cross-platform-support)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen.svg)](#-contributing)
-[![Status](https://img.shields.io/badge/Status-Production%20Ready-success.svg)](#-production-deployment)
+[![Status](https://img.shields.io/badge/Status-Production%20Ready-success.svg)](#-production-execution)
 
 ---
 
-[Key Features](#-key-features) &bull; [Quick Start](#-quick-start) &bull; [Architecture](#-architecture) &bull; [API Docs](#-rest-api-reference) &bull; [Contributing](#-contributing) &bull; [Author](#-author--contact)
+[Key Features](#-key-features) &bull; [Dashboard Preview](#-dashboard-preview) &bull; [How It Works](#-how-it-works) &bull; [Quick Start](#-quick-start) &bull; [Documentation](#-project-documentation) &bull; [API Docs](#-rest-api-reference) &bull; [Author](#-author--contact)
 
 </div>
+
+---
+
+## 📸 Dashboard Preview
+
+![Process Visualizer Black & Hacker Grey Dashboard](assets/dashboard_preview.png)
 
 ---
 
@@ -26,19 +32,7 @@ It bridges low-level system socket telemetry with real-time threat intelligence,
 
 ---
 
-## ✨ Key Features
-
-* ⚡ **Live Real-Time Telemetry**: Continuously tracks active network connections, listening ports, established sockets, and running processes using `psutil`.
-* 🖤 **Black & Hacker Grey Dashboard**: Sleek, high-contrast dark theme with matrix green (`#10b981`) and neon cyan (`#06b6d4`) visual indicators.
-* 🛡️ **Automated Threat Detection Engine**: Automatically flags restricted low-port bindings (<1024), known backdoor/trojan ports (e.g., 4444, 6667, 31337, 1337, 5555), and foreign outbound connections.
-* 💾 **SQLite WAL High-Concurrency Storage**: Utilizes Write-Ahead Logging (`PRAGMA journal_mode=WAL;`) with thread locking and automated 7-day data retention pruning.
-* 🌐 **Multi-Threaded Production WSGI Engine**: Powered by **Waitress** WSGI server (`threads=8`) out-of-the-box for enterprise deployment.
-* 📍 **Smart LRU GeoIP Lookup**: Classifies local/private subnets (`127.0.0.1`, `10.x.x.x`, `192.168.x.x`, `172.16-31.x.x`) instantly and caches external IP locations via `ip-api.com`.
-* 📤 **Filtered Data Export**: Download socket activity logs in standard **CSV** or **JSON** formats.
-
----
-
-## 🏗 Architecture
+## ⚙️ How It Works
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -65,8 +59,39 @@ It bridges low-level system socket telemetry with real-time threat intelligence,
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │        Process Visualizer Hacker Dashboard (UI)             │
-└─────────────────────────────────────────────────────────────┘
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+       ┌───────────────────────┼───────────────────────┐
+       ▼                       ▼                       ▼
+┌──────────────┐       ┌──────────────┐       ┌──────────────┐
+│   Socket     │       │   Threat     │       │   Process    │
+│  Inspector   │       │   Center     │       │   Manager    │
+└──────────────┘       └──────────────┘       └──────────────┘
 ```
+
+1. **Telemetry Collection Loop**: Every 5 seconds, a background collector thread queries OS network sockets (`psutil.net_connections()`) and active processes (`psutil.Process()`).
+2. **Resource & GeoIP Telemetry**: Extracts PID, Process Name, Executable Path, User Account, CPU %, Memory RSS (MB), and maps remote IP locations via an in-memory LRU GeoIP cache.
+3. **Threat Inspection Engine**: Automatically checks each connection against threat rules (restricted low ports <1024, known backdoor ports like 4444/31337, and foreign remote connections).
+4. **SQLite WAL Persistence**: Writes socket snapshots, process inventory, and security alerts atomically into `port_activity.db` using SQLite Write-Ahead Logging (`WAL`).
+5. **Real-Time UI Updates**: The multi-tab Black & Hacker Grey frontend fetches live data via REST APIs, updating socket tables, metrics, timeline line graphs, protocol donut charts, and alert feed popups dynamically every 5 seconds.
+
+---
+
+## ✨ Key Features
+
+* ⚡ **Live Real-Time Telemetry**: Continuously tracks active network connections, listening ports, established sockets, and running processes using `psutil`.
+* 🖤 **Black & Hacker Grey Dashboard**: Sleek, high-contrast dark theme with matrix green (`#10b981`) and neon cyan (`#06b6d4`) visual indicators.
+* 🛡️ **Automated Threat Detection Engine**: Automatically flags restricted low-port bindings (<1024), known backdoor/trojan ports (4444, 6667, 31337, etc.), and suspicious foreign connections.
+* 💾 **SQLite WAL High-Concurrency Storage**: Utilizes Write-Ahead Logging (`PRAGMA journal_mode=WAL;`) with thread locking and automated 7-day data retention pruning.
+* 🌐 **Multi-Threaded Production WSGI Engine**: Powered by **Waitress** WSGI server (`threads=8`) for multi-threaded Windows & Linux production deployment.
+* 📍 **Smart LRU GeoIP Lookup**: Automatically classifies local/private subnets (`127.0.0.1`, `10.x.x.x`, `192.168.x.x`, `172.16-31.x.x`) locally and caches external IP lookups via `ip-api.com`.
+* 📤 **Filtered Data Export**: Download live activity logs in standard **CSV** or **JSON** formats.
+
+---
+
+## 📚 Project Documentation
+
+For comprehensive technical architecture, database schemas, threat rule engine specifications, and API documentation, please refer to the formal [**PROJECT_DOCUMENTATION.md**](PROJECT_DOCUMENTATION.md) file.
 
 ---
 
@@ -95,7 +120,7 @@ git clone https://github.com/chandugollavilli/PortProcessVisualizer.git
 cd PortProcessVisualizer
 
 # Install dependencies
-pip install -r requirements.txt   # or: pip install psutil flask requests waitress
+pip install -r requirements.txt
 ```
 
 ### 3. Run Production Server
@@ -129,7 +154,6 @@ Open your browser and navigate to: **[http://127.0.0.1:5000](http://127.0.0.1:50
 
 ## 🛡️ Threat Detection Rules
 
-The automated security threat engine scans system sockets every tick and triggers incidents for:
 1. **Privileged Port Binding (`CRITICAL`)**: Non-system process binding to restricted ports below 1024.
 2. **Known Threat Port (`CRITICAL`)**: Socket binding to known reverse shell/trojan ports (e.g., `4444` Metasploit, `6667` IRC botnet, `31337` Back Orifice, `1337` LEET, `5555` ADB debug).
 3. **Unusual Remote Connection (`WARNING`)**: Active outbound connection (`ESTABLISHED`) to non-standard remote IP addresses.
@@ -138,10 +162,7 @@ The automated security threat engine scans system sockets every tick and trigger
 
 ## 🤝 Contributing
 
-Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**!
-
-### How to Contribute:
-
+Contributions are welcome! Please follow these steps:
 1. **Fork the Project** (`https://github.com/chandugollavilli/PortProcessVisualizer/fork`)
 2. **Create your Feature Branch** (`git checkout -b feature/AmazingFeature`)
 3. **Commit your Changes** (`git commit -m 'Add some AmazingFeature'`)
