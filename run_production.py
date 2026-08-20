@@ -1,6 +1,6 @@
 """
-Production Launcher for Enterprise Port & Process Activity Visualizer.
-Uses Waitress multi-threaded WSGI server for Windows enterprise deployment.
+Production Launcher for Process Visualizer.
+Uses Waitress multi-threaded WSGI server for cross-platform production deployment.
 """
 
 import sys
@@ -11,7 +11,7 @@ from port_process_visualizer import app, start_application
 
 if __name__ == '__main__':
     print("==========================================================")
-    print(" Port & Process Visualizer - Enterprise Live Edition")
+    print(" Process Visualizer - Production Live Edition")
     print("==========================================================")
     print("  Server Address: http://127.0.0.1:5000")
     print("  Database Mode: SQLite WAL Mode (High Concurrency)")
