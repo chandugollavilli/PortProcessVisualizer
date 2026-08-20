@@ -1,6 +1,6 @@
 # ⚡ **Process Visualizer** 🛡️
 
-A high-performance, real-time network port, process telemetry, and threat inspection engine built for Windows systems.
+A high-performance, real-time network port, process telemetry, and threat inspection engine built for **Windows** and **Linux** systems.
 
 ---
 
@@ -16,6 +16,7 @@ A high-performance, real-time network port, process telemetry, and threat inspec
 ## 📑 **Table of Contents**
 - [🌟 Key Features](#-key-features)
 - [💻 System Architecture](#-system-architecture)
+- [🌐 Cross-Platform Compatibility](#-cross-platform-compatibility)
 - [🛠 Installation & Setup](#-installation--setup)
 - [🚀 Production Execution](#-production-execution)
 - [🔌 REST API Reference](#-rest-api-reference)
@@ -26,64 +27,68 @@ A high-performance, real-time network port, process telemetry, and threat inspec
 
 ## 🌟 **Key Features**
 
-* ⚡ **Live Real-Time Monitoring**: Continuously scans active system sockets, network connections, and running processes using `psutil`.
+* ⚡ **Live Cross-Platform Telemetry**: Scans active system sockets, network connections, and running processes across **Windows** and **Linux** using `psutil`.
 * 🖤 **Black & Hacker Grey Dashboard**: Sleek, high-contrast dark theme with matrix green & neon cyan accents, custom badges, and live telemetry cards.
 * 🛡️ **Automated Threat Detection Engine**: Automatically flags restricted low-port bindings (<1024), known backdoor/trojan ports (4444, 6667, 31337, etc.), and suspicious foreign connections.
 * 💾 **SQLite WAL High-Concurrency Storage**: Utilizes Write-Ahead Logging (`PRAGMA journal_mode=WAL;`) with thread locking and automated 7-day data retention pruning.
-* 🌐 **Multi-Threaded Production WSGI Engine**: Powered by **Waitress** WSGI server (`threads=8`) for multi-threaded Windows enterprise deployment.
+* 🌐 **Multi-Threaded Production WSGI Engine**: Powered by **Waitress** WSGI server (`threads=8`) for multi-threaded Windows & Linux production deployment.
 * 📍 **Smart LRU GeoIP Lookup**: Automatically classifies local/private subnets (`127.0.0.1`, `10.x.x.x`, `192.168.x.x`, `172.16-31.x.x`) locally and caches external IP lookups via `ip-api.com`.
 * 📤 **Filtered Data Export**: Download live activity logs in standard **CSV** or **JSON** formats.
 
 ---
 
-## 💻 **System Architecture**
+## 🌐 **Cross-Platform Compatibility**
 
-```text
-[ Windows Network Sockets & Processes ]
-                  │
-                  ▼ (psutil telemetry scan every 5s)
-     ┌──────────────────────────┐
-     │  port_process_visualizer │ ──► Threats Engine (Alerts)
-     └──────────────────────────┘
-                  │
-                  ▼ (SQLite WAL Engine - port_activity.db)
-     ┌──────────────────────────┐
-     │ Waitress Production WSGI │
-     └──────────────────────────┘
-                  │
-                  ▼ (REST APIs)
-     ┌──────────────────────────┐
-     │  Process Visualizer UI   │ ──► Black & Hacker Grey Dashboard
-     └──────────────────────────┘
-```
+| Feature | Windows | Linux | Notes |
+| :--- | :---: | :---: | :--- |
+| Socket Telemetry (`psutil`) | ✅ | ✅ | Requires Admin (Windows) / `sudo` (Linux) for full PID resolution |
+| WSGI Production Engine | ✅ (Waitress) | ✅ (Waitress / Gunicorn) | Multi-threaded Waitress WSGI included out of the box |
+| Database Engine | ✅ | ✅ | SQLite WAL mode works identically across all OSes |
+| System Whitelist | ✅ | ✅ | Whitelists daemons (`sshd`, `nginx`, `apache2`) and services (`svchost.exe`, `lsass.exe`) |
 
 ---
 
 ## 🛠 **Installation & Setup**
 
 ### Prerequisites:
-- **Operating System**: Windows 10, Windows 11, or Windows Server 2016+
+- **Operating System**: Windows 10/11/Server OR Linux (Ubuntu, Debian, RHEL, CentOS, Arch)
 - **Python**: Python 3.8 or higher
-- **Permissions**: Administrator privileges (recommended for complete socket & process inspection)
+- **Permissions**: Administrator (Windows Elevated Prompt) or Root (`sudo` on Linux) for complete PID socket mapping.
 
 ### Installation Steps:
 
+#### Windows:
 ```powershell
-# 1. Clone the repository
+# Clone repository
 git clone https://github.com/chandugollavilli/PortProcessVisualizer.git
 cd PortProcessVisualizer
 
-# 2. Install production Python dependencies
+# Install dependencies
 pip install psutil flask requests waitress
+```
+
+#### Linux (Ubuntu / Debian):
+```bash
+# Clone repository
+git clone https://github.com/chandugollavilli/PortProcessVisualizer.git
+cd PortProcessVisualizer
+
+# Install dependencies
+pip3 install psutil flask requests waitress
 ```
 
 ---
 
 ## 🚀 **Production Execution**
 
-### Run in Live Production Mode:
+### Windows (Administrator PowerShell):
 ```powershell
 python run_production.py
+```
+
+### Linux (Root / Sudo Terminal):
+```bash
+sudo python3 run_production.py
 ```
 
 Open your browser and navigate to: **[http://127.0.0.1:5000](http://127.0.0.1:5000)**
