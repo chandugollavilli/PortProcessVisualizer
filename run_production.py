@@ -10,19 +10,23 @@ from waitress import serve
 from port_process_visualizer import app, start_application
 
 if __name__ == '__main__':
+    host = os.environ.get('HOST', '127.0.0.1')
+    port = int(os.environ.get('PORT', '5000'))
+    threads = int(os.environ.get('THREADS', '8'))
+
     print("==========================================================")
     print(" Process Visualizer - Production Live Edition")
     print("==========================================================")
-    print("  Server Address: http://127.0.0.1:5000")
+    print(f"  Server Address: http://{host}:{port}")
     print("  Database Mode: SQLite WAL Mode (High Concurrency)")
-    print("  WSGI Engine:   Waitress Production Server (8 Worker Threads)")
-    print("  Logging:       app.log & alerts.log")
+    print(f"  WSGI Engine:   Waitress Production Server ({threads} Worker Threads)")
+    print("  Logging:       app.log & alerts.log (Rotating File Handler)")
     print("==========================================================")
     
     start_application()
     
     try:
-        serve(app, host='127.0.0.1', port=5000, threads=8)
+        serve(app, host=host, port=port, threads=threads)
     except KeyboardInterrupt:
         print("\nShutting down server gracefully...")
         sys.exit(0)

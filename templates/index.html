@@ -293,7 +293,7 @@
                 </div>
             </div>
             <div class="metric-card">
-                <div class="metric-icon purple"><div class="metric-icon purple"><i class="fa-solid fa-microchip"></i></div></div>
+                <div class="metric-icon purple"><i class="fa-solid fa-microchip"></i></div>
                 <div class="metric-info">
                     <h3>Active Processes</h3>
                     <div class="metric-value" id="metricProcesses">0</div>
@@ -497,11 +497,11 @@
 
                 // Table Update
                 const tbody = document.getElementById('socketsTableBody');
-                tbody.innerHTML = '';
 
                 if (!data.snapshot || data.snapshot.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color: var(--text-muted);">No active socket connections match filter criteria.</td></tr>';
                 } else {
+                    let htmlBuffer = '';
                     data.snapshot.forEach(r => {
                         const protoBadge = r.protocol === 'UDP' ? 'badge-udp' : 'badge-tcp';
                         let statusClass = 'status-default';
@@ -511,7 +511,7 @@
 
                         const remoteStr = r.remote_ip ? `${r.remote_ip}:${r.remote_port}` : '0.0.0.0:*';
 
-                        tbody.innerHTML += `
+                        htmlBuffer += `
                             <tr>
                                 <td><strong style="color: var(--text-secondary);">${r.pid}</strong></td>
                                 <td><span style="font-weight:600; color: #ffffff;">${r.process_name}</span></td>
@@ -523,6 +523,7 @@
                                 <td><span style="font-size: 0.8rem; color: var(--text-secondary);"><i class="fa-solid fa-location-dot"></i> ${r.location}</span></td>
                             </tr>`;
                     });
+                    tbody.innerHTML = htmlBuffer;
                 }
 
                 // Render Charts
@@ -545,7 +546,7 @@
                     return;
                 }
 
-                feed.innerHTML = '';
+                let htmlBuffer = '';
                 data.alerts.forEach(a => {
                     const isWarn = a.severity === 'WARNING';
                     const badgeClass = isWarn ? 'badge-warning' : 'badge-critical';
@@ -555,7 +556,7 @@
                         showToast(a.severity, a.rule_name, a.description);
                     }
 
-                    feed.innerHTML += `
+                    htmlBuffer += `
                         <div class="alert-card ${isWarn ? 'warning' : ''}">
                             <div class="alert-info">
                                 <h4>
@@ -570,6 +571,7 @@
                             </button>
                         </div>`;
                 });
+                feed.innerHTML = htmlBuffer;
 
             } catch (err) {
                 console.error("Alerts fetch error:", err);
@@ -594,15 +596,15 @@
                 const res = await fetch('/api/processes');
                 const data = await res.json();
                 const tbody = document.getElementById('processTableBody');
-                tbody.innerHTML = '';
 
                 if (!data.processes || data.processes.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No process data available.</td></tr>';
                     return;
                 }
 
+                let htmlBuffer = '';
                 data.processes.forEach(p => {
-                    tbody.innerHTML += `
+                    htmlBuffer += `
                         <tr>
                             <td><strong>${p.pid}</strong></td>
                             <td><span style="font-weight:600; color: #ffffff;">${p.process_name}</span></td>
@@ -613,6 +615,7 @@
                             <td><span class="badge badge-tcp">${p.open_ports} Sockets</span></td>
                         </tr>`;
                 });
+                tbody.innerHTML = htmlBuffer;
 
             } catch (err) {
                 console.error("Processes fetch error:", err);

@@ -3,6 +3,7 @@ import sqlite3
 import time
 from datetime import datetime, timedelta
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, render_template, send_file, request, jsonify, Response
 import json
 import logging
@@ -10,14 +11,25 @@ import os
 import requests
 import csv
 import io
-import functools
+from logging.handlers import RotatingFileHandler
 
-# Configure production logging
-logging.basicConfig(
-    filename='app.log',
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] (%(threadName)s) %(message)s'
-)
+# Configure production rotating file logger for app.log
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] (%(threadName)s) %(message)s')
+
+if not logger.handlers:
+    app_handler = RotatingFileHandler('app.log', maxBytes=5*1024*1024, backupCount=3, encoding='utf-8')
+    app_handler.setFormatter(formatter)
+    logger.addHandler(app_handler)
+
+# Configure rotating file logger for security alerts
+alert_logger = logging.getLogger('SecurityAlerts')
+alert_logger.setLevel(logging.INFO)
+if not alert_logger.handlers:
+    alert_handler = RotatingFileHandler('alerts.log', maxBytes=5*1024*1024, backupCount=3, encoding='utf-8')
+    alert_handler.setFormatter(logging.Formatter('%(message)s'))
+    alert_logger.addHandler(alert_handler)
 
 app = Flask(__name__)
 
@@ -26,15 +38,16 @@ DB_PATH = 'port_activity.db'
 
 # Enterprise Thread-Safe Database Manager with WAL Mode
 class DatabaseManager:
+    _lock = threading.Lock()
+
     def __init__(self, db_path=None):
         self.db_path = db_path if db_path else DB_PATH
-        self.lock = threading.Lock()
         self._configure_wal()
 
     def _configure_wal(self):
         """Configure SQLite WAL mode for high concurrency concurrent reads/writes."""
         try:
-            with self.lock:
+            with DatabaseManager._lock:
                 conn = sqlite3.connect(self.db_path, timeout=30)
                 c = conn.cursor()
                 c.execute('PRAGMA journal_mode=WAL;')
@@ -50,7 +63,7 @@ class DatabaseManager:
         for attempt in range(retries):
             conn = None
             try:
-                with self.lock:
+                with DatabaseManager._lock:
                     conn = sqlite3.connect(self.db_path, timeout=30)
                     conn.row_factory = sqlite3.Row
                     c = conn.cursor()
@@ -80,7 +93,7 @@ class DatabaseManager:
         for attempt in range(retries):
             conn = None
             try:
-                with self.lock:
+                with DatabaseManager._lock:
                     conn = sqlite3.connect(self.db_path, timeout=30)
                     c = conn.cursor()
                     c.executemany(query, params_list)
@@ -195,11 +208,73 @@ def is_private_ip(ip):
             pass
     return False
 
-# Enterprise GeoIP Lookup Engine
-@functools.lru_cache(maxsize=2048)
-def get_geoip(ip):
-    if is_private_ip(ip):
-        return 'Local / Internal Network'
+# Persistent Process Object Cache for Accurate CPU % Calculations
+PERSISTENT_PROC_CACHE = {}
+
+def get_process_info(pid):
+    if pid <= 0:
+        return {
+            'name': 'System Idle / Kernel',
+            'exe': 'N/A',
+            'username': 'NT AUTHORITY\\SYSTEM',
+            'cpu': 0.0,
+            'mem': 0.0,
+            'ports': set()
+        }
+
+    proc = PERSISTENT_PROC_CACHE.get(pid)
+    if proc:
+        try:
+            name = proc.name()
+            exe = proc.exe() if hasattr(proc, 'exe') else 'N/A'
+            username = proc.username() if hasattr(proc, 'username') else 'N/A'
+            cpu = proc.cpu_percent(interval=None)
+            mem = proc.memory_info().rss / (1024 * 1024) if hasattr(proc, 'memory_info') else 0.0
+            return {
+                'name': name,
+                'exe': exe,
+                'username': username,
+                'cpu': cpu,
+                'mem': mem,
+                'ports': set()
+            }
+        except (psutil.NoSuchProcess, psutil.AccessDenied, Exception):
+            PERSISTENT_PROC_CACHE.pop(pid, None)
+
+    try:
+        p = psutil.Process(pid)
+        name = p.name()
+        exe = p.exe() if hasattr(p, 'exe') else 'N/A'
+        username = p.username() if hasattr(p, 'username') else 'N/A'
+        # Call cpu_percent once to initialize baseline interval
+        p.cpu_percent(interval=None)
+        mem = p.memory_info().rss / (1024 * 1024) if hasattr(p, 'memory_info') else 0.0
+        PERSISTENT_PROC_CACHE[pid] = p
+        return {
+            'name': name,
+            'exe': exe,
+            'username': username,
+            'cpu': 0.0,
+            'mem': mem,
+            'ports': set()
+        }
+    except (psutil.NoSuchProcess, psutil.AccessDenied, Exception):
+        return {
+            'name': 'System / Protected',
+            'exe': 'N/A',
+            'username': 'SYSTEM',
+            'cpu': 0.0,
+            'mem': 0.0,
+            'ports': set()
+        }
+
+# Enterprise Asynchronous GeoIP Lookup Engine
+GEOIP_CACHE = {}
+GEOIP_PENDING = set()
+GEOIP_LOCK = threading.Lock()
+GEOIP_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="GeoIPWorker")
+
+def _fetch_geoip_async(ip):
     try:
         response = requests.get(f'http://ip-api.com/json/{ip}?fields=status,country,city,isp,org', timeout=3)
         if response.status_code == 200:
@@ -211,17 +286,37 @@ def get_geoip(ip):
                 location_str = f"{city}, {country}" if city and country else (country or city or 'External')
                 if isp:
                     location_str += f" ({isp})"
-                return location_str
-        return 'Unknown Location'
-    except requests.RequestException:
-        return 'Unknown Location'
+                with GEOIP_LOCK:
+                    GEOIP_CACHE[ip] = location_str
+                return
+        with GEOIP_LOCK:
+            GEOIP_CACHE[ip] = 'External'
+    except Exception:
+        with GEOIP_LOCK:
+            GEOIP_CACHE[ip] = 'Unknown Location'
+    finally:
+        with GEOIP_LOCK:
+            GEOIP_PENDING.discard(ip)
+
+def get_geoip(ip):
+    if is_private_ip(ip):
+        return 'Local / Internal Network'
+    
+    with GEOIP_LOCK:
+        if ip in GEOIP_CACHE:
+            return GEOIP_CACHE[ip]
+        if ip not in GEOIP_PENDING:
+            GEOIP_PENDING.add(ip)
+            GEOIP_EXECUTOR.submit(_fetch_geoip_async, ip)
+        return 'Resolving Location...'
 
 # System Process Whitelist for Privilege Alert Filter
 SYSTEM_WHITELIST = {
     'sshd', 'nginx', 'apache2', 'system', 'svchost.exe', 'system idle process',
     'lsass.exe', 'services.exe', 'smss.exe', 'spoolsv.exe', 'csrss.exe',
     'wininit.exe', 'winlogon.exe', 'explorer.exe', 'sqlservr.exe', 'mysqld.exe',
-    'postgres.exe', 'httpd.exe'
+    'postgres.exe', 'httpd.exe', 'system / protected', 'system idle / kernel',
+    'alg.exe', 'dashost.exe', 'sihost.exe', 'searchindexer.exe', 'comppkgsrv.exe'
 }
 
 # Known Malicious / Backdoor Port Rules
@@ -269,35 +364,7 @@ def collect_data(db_manager):
             proc_info = process_cache.get(pid)
 
             if not proc_info:
-                if pid > 0:
-                    try:
-                        p = psutil.Process(pid)
-                        proc_info = {
-                            'name': p.name(),
-                            'exe': p.exe() if hasattr(p, 'exe') else 'N/A',
-                            'username': p.username() if hasattr(p, 'username') else 'N/A',
-                            'cpu': p.cpu_percent(interval=None),
-                            'mem': p.memory_info().rss / (1024 * 1024) if hasattr(p, 'memory_info') else 0.0,
-                            'ports': set()
-                        }
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, Exception):
-                        proc_info = {
-                            'name': 'System / Protected',
-                            'exe': 'N/A',
-                            'username': 'SYSTEM',
-                            'cpu': 0.0,
-                            'mem': 0.0,
-                            'ports': set()
-                        }
-                else:
-                    proc_info = {
-                        'name': 'System Idle / Kernel',
-                        'exe': 'N/A',
-                        'username': 'NT AUTHORITY\\SYSTEM',
-                        'cpu': 0.0,
-                        'mem': 0.0,
-                        'ports': set()
-                    }
+                proc_info = get_process_info(pid)
                 process_cache[pid] = proc_info
 
             port = conn.laddr.port
@@ -322,15 +389,15 @@ def collect_data(db_manager):
                     'Known Threat Port', f"Socket bound to {KNOWN_THREAT_PORTS[port]} (Port {port})"
                 ))
 
-            # Rule 2: Non-whitelisted Low Ports (<1024)
-            elif port < 1024 and proc_info['name'].lower() not in SYSTEM_WHITELIST:
+            # Rule 2: Non-whitelisted Low Ports (<1024) listening
+            elif port < 1024 and status in ('LISTEN', 'LISTENING') and proc_info['name'].lower() not in SYSTEM_WHITELIST:
                 alerts_to_log.append((
                     timestamp, 'CRITICAL', pid, proc_info['name'], port, remote_ip,
                     'Privileged Port Binding', f"Non-system process '{proc_info['name']}' bound to restricted port {port}"
                 ))
 
             # Rule 3: Suspicious Outbound Connection to Foreign IP
-            elif status == 'ESTABLISHED' and remote_ip and not is_private_ip(remote_ip) and remote_port not in (80, 443, 8080, 8443):
+            elif status == 'ESTABLISHED' and remote_ip and not is_private_ip(remote_ip) and remote_port not in (80, 443, 8080, 8443, 5228, 5222, 5223, 53, 22, 587, 465, 993, 995, 3389, 8000):
                 alerts_to_log.append((
                     timestamp, 'WARNING', pid, proc_info['name'], port, remote_ip,
                     'Unusual Remote Connection', f"Active outbound connection to {remote_ip}:{remote_port} ({location})"
@@ -374,8 +441,7 @@ def collect_data(db_manager):
                 ''', alert)
 
                 # Write to security log file
-                with open('alerts.log', 'a', encoding='utf-8') as f:
-                    f.write(f"[{alert[1]}] {alert[0]} - {alert[6]}: {alert[7]} (PID: {alert[2]})\n")
+                alert_logger.info(f"[{alert[1]}] {alert[0]} - {alert[6]}: {alert[7]} (PID: {alert[2]})")
 
         # Maintenance Cleanup
         prune_old_records(db_manager)
@@ -428,14 +494,16 @@ def get_data():
 
         snapshot = db_manager.execute(query, params, fetch=True) or []
 
-        # Get Chronological Timeline for Chart
+        # Get Chronological Timeline for Chart (Bounded to last 2 hours for sub-millisecond query performance)
+        cutoff_time = (datetime.now() - timedelta(hours=2)).isoformat()
         timeline = db_manager.execute('''
             SELECT timestamp, COUNT(DISTINCT port) as port_count
             FROM port_activity
+            WHERE timestamp >= ?
             GROUP BY timestamp
             ORDER BY timestamp DESC
             LIMIT 40
-        ''', fetch=True) or []
+        ''', (cutoff_time,), fetch=True) or []
 
         timeline_chronological = list(reversed(timeline))
 
